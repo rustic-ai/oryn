@@ -34,6 +34,7 @@ pub struct GeneratedMember {
     pub put_forwards: Option<&'static str>,
     pub reflect_attribute: Option<&'static str>,
     pub legacy_null_to_empty_string: bool,
+    pub legacy_lenient_this: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedInterface {
@@ -107,6 +108,7 @@ pub const ABORT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1),
@@ -131,6 +133,7 @@ pub const ABORT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2),
@@ -155,6 +158,7 @@ pub const ABORT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
@@ -181,6 +185,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65537),
@@ -205,6 +210,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65538),
@@ -229,6 +235,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65539),
@@ -253,6 +260,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65540),
@@ -277,6 +285,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65541),
@@ -301,6 +310,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(65542),
@@ -325,6 +335,7 @@ pub const ABORT_SIGNAL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
@@ -351,6 +362,7 @@ pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(131073),
@@ -375,6 +387,7 @@ pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(131074),
@@ -399,6 +412,7 @@ pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(131075),
@@ -423,6 +437,7 @@ pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(131076),
@@ -447,6 +462,7 @@ pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
@@ -473,6 +489,7 @@ pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(196609),
@@ -497,6 +514,7 @@ pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(196610),
@@ -521,6 +539,7 @@ pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(196611),
@@ -545,6 +564,7 @@ pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(196612),
@@ -569,6 +589,7 @@ pub const ANIMATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ANIMATION_EFFECT_MEMBERS: &[GeneratedMember] = &[];
@@ -596,6 +617,7 @@ pub const ANIMATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ANIMATION_PLAYBACK_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -622,6 +644,7 @@ pub const ANIMATION_PLAYBACK_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ANIMATION_TIMELINE_MEMBERS: &[GeneratedMember] = &[];
@@ -649,6 +672,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524289),
@@ -673,6 +697,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524290),
@@ -697,6 +722,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524291),
@@ -721,6 +747,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524292),
@@ -745,6 +772,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524293),
@@ -769,6 +797,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524294),
@@ -793,6 +822,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(524295),
@@ -817,6 +847,7 @@ pub const ATTR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
@@ -843,6 +874,7 @@ pub const AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(589825),
@@ -867,6 +899,7 @@ pub const AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
@@ -893,6 +926,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655361),
@@ -917,6 +951,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655362),
@@ -941,6 +976,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655363),
@@ -965,6 +1001,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655364),
@@ -989,6 +1026,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655365),
@@ -1013,6 +1051,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655366),
@@ -1037,6 +1076,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655367),
@@ -1061,6 +1101,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655368),
@@ -1085,6 +1126,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655369),
@@ -1109,6 +1151,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(655370),
@@ -1133,6 +1176,7 @@ pub const AUDIO_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
@@ -1159,6 +1203,7 @@ pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(720897),
@@ -1183,6 +1228,7 @@ pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(720898),
@@ -1207,6 +1253,7 @@ pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(720899),
@@ -1231,6 +1278,7 @@ pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(720900),
@@ -1255,6 +1303,7 @@ pub const AUDIO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -1281,6 +1330,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(786433),
@@ -1305,6 +1355,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(786434),
@@ -1329,6 +1380,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(786435),
@@ -1353,6 +1405,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(786436),
@@ -1377,6 +1430,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(786437),
@@ -1401,6 +1455,7 @@ pub const AUDIO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_WORKLET_MEMBERS: &[GeneratedMember] = &[
@@ -1427,6 +1482,7 @@ pub const AUDIO_WORKLET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const AUDIO_WORKLET_NODE_MEMBERS: &[GeneratedMember] = &[
@@ -1453,6 +1509,7 @@ pub const AUDIO_WORKLET_NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(917505),
@@ -1477,6 +1534,7 @@ pub const AUDIO_WORKLET_NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(917506),
@@ -1501,6 +1559,7 @@ pub const AUDIO_WORKLET_NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const BASE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
@@ -1527,6 +1586,7 @@ pub const BASE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(983041),
@@ -1551,6 +1611,7 @@ pub const BASE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(983042),
@@ -1575,6 +1636,7 @@ pub const BASE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(983043),
@@ -1599,6 +1661,7 @@ pub const BASE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const BEFORE_UNLOAD_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -1625,6 +1688,7 @@ pub const BEFORE_UNLOAD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const BLOB_MEMBERS: &[GeneratedMember] = &[
@@ -1651,6 +1715,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114113),
@@ -1675,6 +1740,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114114),
@@ -1699,6 +1765,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114115),
@@ -1723,6 +1790,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114116),
@@ -1747,6 +1815,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114117),
@@ -1771,6 +1840,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114118),
@@ -1795,6 +1865,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114119),
@@ -1819,6 +1890,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1114120),
@@ -1843,6 +1915,7 @@ pub const BLOB_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
@@ -1869,6 +1942,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1179649),
@@ -1893,6 +1967,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1179650),
@@ -1917,6 +1992,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1179651),
@@ -1941,6 +2017,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1179652),
@@ -1965,6 +2042,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1179653),
@@ -1989,6 +2067,7 @@ pub const BROADCAST_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const BYTE_LENGTH_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
@@ -2015,6 +2094,7 @@ pub const BYTE_LENGTH_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1245185),
@@ -2039,6 +2119,7 @@ pub const BYTE_LENGTH_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1245186),
@@ -2063,6 +2144,7 @@ pub const BYTE_LENGTH_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_D_A_T_A_SECTION_MEMBERS: &[GeneratedMember] = &[];
@@ -2091,6 +2173,7 @@ pub const C_S_S_CONDITION_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_CONTAINER_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -2117,6 +2200,7 @@ pub const C_S_S_CONTAINER_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1507329),
@@ -2141,6 +2225,7 @@ pub const C_S_S_CONTAINER_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1507330),
@@ -2165,6 +2250,7 @@ pub const C_S_S_CONTAINER_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
@@ -2191,6 +2277,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572865),
@@ -2215,6 +2302,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572866),
@@ -2239,6 +2327,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572867),
@@ -2263,6 +2352,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572868),
@@ -2287,6 +2377,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572869),
@@ -2311,6 +2402,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572870),
@@ -2335,6 +2427,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572871),
@@ -2359,6 +2452,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572872),
@@ -2383,6 +2477,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572873),
@@ -2407,6 +2502,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572874),
@@ -2431,6 +2527,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572875),
@@ -2455,6 +2552,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572876),
@@ -2479,6 +2577,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572877),
@@ -2503,6 +2602,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572878),
@@ -2527,6 +2627,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572879),
@@ -2551,6 +2652,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572880),
@@ -2575,6 +2677,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572881),
@@ -2599,6 +2702,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572882),
@@ -2623,6 +2727,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572883),
@@ -2647,6 +2752,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572884),
@@ -2671,6 +2777,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572885),
@@ -2695,6 +2802,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572886),
@@ -2719,6 +2827,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572887),
@@ -2743,6 +2852,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572888),
@@ -2767,6 +2877,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572889),
@@ -2791,6 +2902,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572890),
@@ -2815,6 +2927,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572891),
@@ -2839,6 +2952,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572892),
@@ -2863,6 +2977,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572893),
@@ -2887,6 +3002,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572894),
@@ -2911,6 +3027,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572895),
@@ -2935,6 +3052,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572896),
@@ -2959,6 +3077,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572897),
@@ -2983,6 +3102,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572898),
@@ -3007,6 +3127,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572899),
@@ -3031,6 +3152,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572900),
@@ -3055,6 +3177,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572901),
@@ -3079,6 +3202,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572902),
@@ -3103,6 +3227,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572903),
@@ -3127,6 +3252,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1572904),
@@ -3151,6 +3277,7 @@ pub const C_S_S_FONT_FACE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_FONT_FACE_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3177,6 +3304,7 @@ pub const C_S_S_FONT_FACE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_GROUPING_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3203,6 +3331,7 @@ pub const C_S_S_GROUPING_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1703937),
@@ -3227,6 +3356,7 @@ pub const C_S_S_GROUPING_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1703938),
@@ -3251,6 +3381,7 @@ pub const C_S_S_GROUPING_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3277,6 +3408,7 @@ pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1769473),
@@ -3301,6 +3433,7 @@ pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("mediaText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1769474),
@@ -3325,6 +3458,7 @@ pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1769475),
@@ -3349,6 +3483,7 @@ pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(1769476),
@@ -3373,6 +3508,7 @@ pub const C_S_S_IMPORT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_LAYER_BLOCK_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3399,6 +3535,7 @@ pub const C_S_S_LAYER_BLOCK_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_LAYER_STATEMENT_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3425,6 +3562,7 @@ pub const C_S_S_LAYER_STATEMENT_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_MEDIA_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3451,6 +3589,7 @@ pub const C_S_S_MEDIA_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("mediaText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_NAMESPACE_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3477,6 +3616,7 @@ pub const C_S_S_NAMESPACE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2031617),
@@ -3501,6 +3641,7 @@ pub const C_S_S_NAMESPACE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_NESTED_DECLARATIONS_MEMBERS: &[GeneratedMember] = &[
@@ -3527,6 +3668,7 @@ pub const C_S_S_NESTED_DECLARATIONS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
@@ -3553,6 +3695,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162689),
@@ -3577,6 +3720,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162690),
@@ -3601,6 +3745,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162691),
@@ -3625,6 +3770,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162692),
@@ -3649,6 +3795,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162693),
@@ -3673,6 +3820,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162694),
@@ -3697,6 +3845,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162695),
@@ -3721,6 +3870,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162696),
@@ -3745,6 +3895,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162697),
@@ -3769,6 +3920,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162698),
@@ -3793,6 +3945,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162699),
@@ -3817,6 +3970,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162700),
@@ -3841,6 +3995,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2162701),
@@ -3865,6 +4020,7 @@ pub const C_S_S_PAGE_DESCRIPTORS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_PAGE_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3891,6 +4047,7 @@ pub const C_S_S_PAGE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2228225),
@@ -3915,6 +4072,7 @@ pub const C_S_S_PAGE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -3941,6 +4099,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293761),
@@ -3965,6 +4124,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293762),
@@ -3989,6 +4149,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293763),
@@ -4013,6 +4174,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293764),
@@ -4037,6 +4199,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293765),
@@ -4061,6 +4224,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293766),
@@ -4085,6 +4249,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293767),
@@ -4109,6 +4274,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293768),
@@ -4133,6 +4299,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293769),
@@ -4157,6 +4324,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293770),
@@ -4181,6 +4349,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2293771),
@@ -4205,6 +4374,7 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_RULE_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -4231,6 +4401,7 @@ pub const C_S_S_RULE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2359297),
@@ -4255,6 +4426,7 @@ pub const C_S_S_RULE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_SCOPE_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -4281,6 +4453,7 @@ pub const C_S_S_SCOPE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2424833),
@@ -4305,6 +4478,7 @@ pub const C_S_S_SCOPE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_STARTING_STYLE_RULE_MEMBERS: &[GeneratedMember] = &[];
@@ -4332,6 +4506,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555905),
@@ -4356,6 +4531,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555906),
@@ -4380,6 +4556,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555907),
@@ -4404,6 +4581,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555908),
@@ -4428,6 +4606,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555909),
@@ -4452,6 +4631,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555910),
@@ -4476,6 +4656,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555911),
@@ -4500,6 +4681,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555912),
@@ -4524,6 +4706,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555913),
@@ -4548,6 +4731,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555914),
@@ -4572,6 +4756,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555915),
@@ -4596,6 +4781,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555916),
@@ -4620,6 +4806,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555917),
@@ -4644,6 +4831,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555918),
@@ -4668,6 +4856,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555919),
@@ -4692,6 +4881,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555920),
@@ -4716,6 +4906,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555921),
@@ -4740,6 +4931,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555922),
@@ -4764,6 +4956,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555923),
@@ -4788,6 +4981,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555924),
@@ -4812,6 +5006,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555925),
@@ -4836,6 +5031,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555926),
@@ -4860,6 +5056,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555927),
@@ -4884,6 +5081,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555928),
@@ -4908,6 +5106,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555929),
@@ -4932,6 +5131,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555930),
@@ -4956,6 +5156,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555931),
@@ -4980,6 +5181,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555932),
@@ -5004,6 +5206,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555933),
@@ -5028,6 +5231,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555934),
@@ -5052,6 +5256,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555935),
@@ -5076,6 +5281,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555936),
@@ -5100,6 +5306,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555937),
@@ -5124,6 +5331,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555938),
@@ -5148,6 +5356,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555939),
@@ -5172,6 +5381,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555940),
@@ -5196,6 +5406,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555941),
@@ -5220,6 +5431,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555942),
@@ -5244,6 +5456,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555943),
@@ -5268,6 +5481,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555944),
@@ -5292,6 +5506,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555945),
@@ -5316,6 +5531,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555946),
@@ -5340,6 +5556,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555947),
@@ -5364,6 +5581,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2555948),
@@ -5388,6 +5606,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_STYLE_PROPERTIES_MEMBERS: &[GeneratedMember] = &[
@@ -5414,6 +5633,7 @@ pub const C_S_S_STYLE_PROPERTIES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_STYLE_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -5440,6 +5660,7 @@ pub const C_S_S_STYLE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2686977),
@@ -5464,6 +5685,7 @@ pub const C_S_S_STYLE_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
@@ -5490,6 +5712,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752513),
@@ -5514,6 +5737,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752514),
@@ -5538,6 +5762,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752515),
@@ -5562,6 +5787,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752516),
@@ -5586,6 +5812,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752517),
@@ -5610,6 +5837,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752518),
@@ -5634,6 +5862,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752519),
@@ -5658,6 +5887,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752520),
@@ -5682,6 +5912,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2752521),
@@ -5706,6 +5937,7 @@ pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_SUPPORTS_RULE_MEMBERS: &[GeneratedMember] = &[
@@ -5732,6 +5964,7 @@ pub const C_S_S_SUPPORTS_RULE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const C_S_S_TRANSITION_MEMBERS: &[GeneratedMember] = &[];
@@ -5759,6 +5992,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949121),
@@ -5783,6 +6017,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949122),
@@ -5807,6 +6042,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949123),
@@ -5831,6 +6067,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949124),
@@ -5855,6 +6092,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949125),
@@ -5879,6 +6117,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(2949126),
@@ -5903,6 +6142,7 @@ pub const CACHE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
@@ -5929,6 +6169,7 @@ pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3014657),
@@ -5953,6 +6194,7 @@ pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3014658),
@@ -5977,6 +6219,7 @@ pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3014659),
@@ -6001,6 +6244,7 @@ pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3014660),
@@ -6025,6 +6269,7 @@ pub const CACHE_STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
@@ -6051,6 +6296,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080193),
@@ -6075,6 +6321,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080194),
@@ -6099,6 +6346,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080195),
@@ -6123,6 +6371,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080196),
@@ -6147,6 +6396,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080197),
@@ -6171,6 +6421,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080198),
@@ -6195,6 +6446,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080199),
@@ -6219,6 +6471,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080200),
@@ -6243,6 +6496,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080201),
@@ -6267,6 +6521,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080202),
@@ -6291,6 +6546,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080203),
@@ -6315,6 +6571,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080204),
@@ -6339,6 +6596,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080205),
@@ -6363,6 +6621,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080206),
@@ -6387,6 +6646,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080207),
@@ -6411,6 +6671,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080208),
@@ -6435,6 +6696,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080209),
@@ -6459,6 +6721,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080210),
@@ -6483,6 +6746,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080211),
@@ -6507,6 +6771,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080212),
@@ -6531,6 +6796,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080213),
@@ -6555,6 +6821,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080214),
@@ -6579,6 +6846,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080215),
@@ -6603,6 +6871,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080216),
@@ -6627,6 +6896,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080217),
@@ -6651,6 +6921,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080218),
@@ -6675,6 +6946,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080219),
@@ -6699,6 +6971,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080220),
@@ -6723,6 +6996,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080221),
@@ -6747,6 +7021,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080222),
@@ -6771,6 +7046,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080223),
@@ -6795,6 +7071,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080224),
@@ -6819,6 +7096,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080225),
@@ -6843,6 +7121,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080226),
@@ -6867,6 +7146,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080227),
@@ -6891,6 +7171,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080228),
@@ -6915,6 +7196,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080229),
@@ -6939,6 +7221,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080230),
@@ -6963,6 +7246,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080231),
@@ -6987,6 +7271,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080232),
@@ -7011,6 +7296,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080233),
@@ -7035,6 +7321,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080234),
@@ -7059,6 +7346,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080235),
@@ -7083,6 +7371,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080236),
@@ -7107,6 +7396,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080237),
@@ -7131,6 +7421,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080238),
@@ -7155,6 +7446,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080239),
@@ -7179,6 +7471,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080240),
@@ -7203,6 +7496,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080241),
@@ -7227,6 +7521,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080242),
@@ -7251,6 +7546,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080243),
@@ -7275,6 +7571,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080244),
@@ -7299,6 +7596,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080245),
@@ -7323,6 +7621,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080246),
@@ -7347,6 +7646,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3080247),
@@ -7371,6 +7671,7 @@ pub const CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CHARACTER_BOUNDS_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -7397,6 +7698,7 @@ pub const CHARACTER_BOUNDS_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3145729),
@@ -7421,6 +7723,7 @@ pub const CHARACTER_BOUNDS_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3145730),
@@ -7445,6 +7748,7 @@ pub const CHARACTER_BOUNDS_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
@@ -7471,6 +7775,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211265),
@@ -7495,6 +7800,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211266),
@@ -7519,6 +7825,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211267),
@@ -7543,6 +7850,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211268),
@@ -7567,6 +7875,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211269),
@@ -7591,6 +7900,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211270),
@@ -7615,6 +7925,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211271),
@@ -7639,6 +7950,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211272),
@@ -7663,6 +7975,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211273),
@@ -7687,6 +8000,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211274),
@@ -7711,6 +8025,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211275),
@@ -7735,6 +8050,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211276),
@@ -7759,6 +8075,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211277),
@@ -7783,6 +8100,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211278),
@@ -7807,6 +8125,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211279),
@@ -7831,6 +8150,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211280),
@@ -7855,6 +8175,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211281),
@@ -7879,6 +8200,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3211282),
@@ -7903,6 +8225,7 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
@@ -7929,6 +8252,7 @@ pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3276801),
@@ -7953,6 +8277,7 @@ pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3276802),
@@ -7977,6 +8302,7 @@ pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3276803),
@@ -8001,6 +8327,7 @@ pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3276804),
@@ -8025,6 +8352,7 @@ pub const CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLIENTS_MEMBERS: &[GeneratedMember] = &[
@@ -8051,6 +8379,7 @@ pub const CLIENTS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3342337),
@@ -8075,6 +8404,7 @@ pub const CLIENTS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3342338),
@@ -8099,6 +8429,7 @@ pub const CLIENTS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3342339),
@@ -8123,6 +8454,7 @@ pub const CLIENTS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLIPBOARD_MEMBERS: &[GeneratedMember] = &[
@@ -8149,6 +8481,7 @@ pub const CLIPBOARD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3407873),
@@ -8173,6 +8506,7 @@ pub const CLIPBOARD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3407874),
@@ -8197,6 +8531,7 @@ pub const CLIPBOARD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3407875),
@@ -8221,6 +8556,7 @@ pub const CLIPBOARD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLIPBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -8247,6 +8583,7 @@ pub const CLIPBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3473409),
@@ -8271,6 +8608,7 @@ pub const CLIPBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
@@ -8297,6 +8635,7 @@ pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3538945),
@@ -8321,6 +8660,7 @@ pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3538946),
@@ -8345,6 +8685,7 @@ pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3538947),
@@ -8369,6 +8710,7 @@ pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3538948),
@@ -8393,6 +8735,7 @@ pub const CLIPBOARD_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CLOSE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -8419,6 +8762,7 @@ pub const CLOSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3604481),
@@ -8443,6 +8787,7 @@ pub const CLOSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3604482),
@@ -8467,6 +8812,7 @@ pub const CLOSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3604483),
@@ -8491,6 +8837,7 @@ pub const CLOSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const COMMAND_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -8517,6 +8864,7 @@ pub const COMMAND_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3670017),
@@ -8541,6 +8889,7 @@ pub const COMMAND_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3670018),
@@ -8565,6 +8914,7 @@ pub const COMMAND_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const COMMENT_MEMBERS: &[GeneratedMember] = &[
@@ -8591,6 +8941,7 @@ pub const COMMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const COMPOSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -8617,6 +8968,7 @@ pub const COMPOSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3801089),
@@ -8641,6 +8993,7 @@ pub const COMPOSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3801090),
@@ -8665,6 +9018,7 @@ pub const COMPOSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const COUNT_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
@@ -8691,6 +9045,7 @@ pub const COUNT_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3866625),
@@ -8715,6 +9070,7 @@ pub const COUNT_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3866626),
@@ -8739,6 +9095,7 @@ pub const COUNT_QUEUING_STRATEGY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CRYPTO_MEMBERS: &[GeneratedMember] = &[
@@ -8765,6 +9122,7 @@ pub const CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3932161),
@@ -8789,6 +9147,7 @@ pub const CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3932162),
@@ -8813,6 +9172,7 @@ pub const CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CRYPTO_KEY_MEMBERS: &[GeneratedMember] = &[
@@ -8839,6 +9199,7 @@ pub const CRYPTO_KEY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3997697),
@@ -8863,6 +9224,7 @@ pub const CRYPTO_KEY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3997698),
@@ -8887,6 +9249,7 @@ pub const CRYPTO_KEY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(3997699),
@@ -8911,6 +9274,7 @@ pub const CRYPTO_KEY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
@@ -8937,6 +9301,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063233),
@@ -8961,6 +9326,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063234),
@@ -8985,6 +9351,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063235),
@@ -9009,6 +9376,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063236),
@@ -9033,6 +9401,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063237),
@@ -9057,6 +9426,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4063238),
@@ -9081,6 +9451,7 @@ pub const CUSTOM_ELEMENT_REGISTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -9107,6 +9478,7 @@ pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4128769),
@@ -9131,6 +9503,7 @@ pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4128770),
@@ -9155,6 +9528,7 @@ pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
@@ -9181,6 +9555,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194305),
@@ -9205,6 +9580,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194306),
@@ -9229,6 +9605,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194307),
@@ -9253,6 +9630,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194308),
@@ -9277,6 +9655,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194309),
@@ -9301,6 +9680,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194310),
@@ -9325,6 +9705,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194311),
@@ -9349,6 +9730,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194312),
@@ -9373,6 +9755,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4194313),
@@ -9397,6 +9780,7 @@ pub const CUSTOM_STATE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
@@ -9423,6 +9807,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259841),
@@ -9447,6 +9832,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259842),
@@ -9471,6 +9857,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259843),
@@ -9495,6 +9882,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259844),
@@ -9519,6 +9907,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259845),
@@ -9543,6 +9932,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259846),
@@ -9567,6 +9957,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259847),
@@ -9591,6 +9982,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259848),
@@ -9615,6 +10007,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259849),
@@ -9639,6 +10032,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259850),
@@ -9663,6 +10057,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259851),
@@ -9687,6 +10082,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259852),
@@ -9711,6 +10107,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259853),
@@ -9735,6 +10132,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259854),
@@ -9759,6 +10157,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259855),
@@ -9783,6 +10182,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259856),
@@ -9807,6 +10207,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259857),
@@ -9831,6 +10232,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259858),
@@ -9855,6 +10257,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259859),
@@ -9879,6 +10282,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259860),
@@ -9903,6 +10307,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259861),
@@ -9927,6 +10332,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259862),
@@ -9951,6 +10357,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259863),
@@ -9975,6 +10382,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259864),
@@ -9999,6 +10407,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259865),
@@ -10023,6 +10432,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259866),
@@ -10047,6 +10457,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259867),
@@ -10071,6 +10482,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4259868),
@@ -10095,6 +10507,7 @@ pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
@@ -10121,6 +10534,7 @@ pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4325377),
@@ -10145,6 +10559,7 @@ pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4325378),
@@ -10169,6 +10584,7 @@ pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4325379),
@@ -10193,6 +10609,7 @@ pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_MATRIX_MEMBERS: &[GeneratedMember] = &[
@@ -10219,6 +10636,7 @@ pub const D_O_M_MATRIX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_MATRIX_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
@@ -10245,6 +10663,7 @@ pub const D_O_M_MATRIX_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_PARSER_MEMBERS: &[GeneratedMember] = &[
@@ -10271,6 +10690,7 @@ pub const D_O_M_PARSER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4521985),
@@ -10295,6 +10715,7 @@ pub const D_O_M_PARSER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_POINT_MEMBERS: &[GeneratedMember] = &[
@@ -10321,6 +10742,7 @@ pub const D_O_M_POINT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_POINT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
@@ -10347,6 +10769,7 @@ pub const D_O_M_POINT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
@@ -10373,6 +10796,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718593),
@@ -10397,6 +10821,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718594),
@@ -10421,6 +10846,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718595),
@@ -10445,6 +10871,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718596),
@@ -10469,6 +10896,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718597),
@@ -10493,6 +10921,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4718598),
@@ -10517,6 +10946,7 @@ pub const D_O_M_QUAD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
@@ -10543,6 +10973,7 @@ pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4784129),
@@ -10567,6 +10998,7 @@ pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4784130),
@@ -10591,6 +11023,7 @@ pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4784131),
@@ -10615,6 +11048,7 @@ pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4784132),
@@ -10639,6 +11073,7 @@ pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_RECT_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -10665,6 +11100,7 @@ pub const D_O_M_RECT_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4849665),
@@ -10689,6 +11125,7 @@ pub const D_O_M_RECT_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
@@ -10715,6 +11152,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915201),
@@ -10739,6 +11177,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915202),
@@ -10763,6 +11202,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915203),
@@ -10787,6 +11227,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915204),
@@ -10811,6 +11252,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915205),
@@ -10835,6 +11277,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915206),
@@ -10859,6 +11302,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915207),
@@ -10883,6 +11327,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4915208),
@@ -10907,6 +11352,7 @@ pub const D_O_M_RECT_READ_ONLY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_STRING_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -10933,6 +11379,7 @@ pub const D_O_M_STRING_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4980737),
@@ -10957,6 +11404,7 @@ pub const D_O_M_STRING_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(4980738),
@@ -10981,6 +11429,7 @@ pub const D_O_M_STRING_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_STRING_MAP_MEMBERS: &[GeneratedMember] = &[
@@ -11007,6 +11456,7 @@ pub const D_O_M_STRING_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5046273),
@@ -11031,6 +11481,7 @@ pub const D_O_M_STRING_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5046274),
@@ -11055,6 +11506,7 @@ pub const D_O_M_STRING_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -11081,6 +11533,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111809),
@@ -11105,6 +11558,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111810),
@@ -11129,6 +11583,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111811),
@@ -11153,6 +11608,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111812),
@@ -11177,6 +11633,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111813),
@@ -11201,6 +11658,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111814),
@@ -11225,6 +11683,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111815),
@@ -11249,6 +11708,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111816),
@@ -11273,6 +11733,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111817),
@@ -11297,6 +11758,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5111818),
@@ -11321,6 +11783,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
@@ -11347,6 +11810,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177345),
@@ -11371,6 +11835,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177346),
@@ -11395,6 +11860,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177347),
@@ -11419,6 +11885,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177348),
@@ -11443,6 +11910,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177349),
@@ -11467,6 +11935,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177350),
@@ -11491,6 +11960,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177351),
@@ -11515,6 +11985,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177352),
@@ -11539,6 +12010,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5177353),
@@ -11563,6 +12035,7 @@ pub const DATA_TRANSFER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DATA_TRANSFER_ITEM_MEMBERS: &[GeneratedMember] = &[
@@ -11589,6 +12062,7 @@ pub const DATA_TRANSFER_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5242881),
@@ -11613,6 +12087,7 @@ pub const DATA_TRANSFER_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5242882),
@@ -11637,6 +12112,7 @@ pub const DATA_TRANSFER_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5242883),
@@ -11661,6 +12137,7 @@ pub const DATA_TRANSFER_ITEM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -11687,6 +12164,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5308417),
@@ -11711,6 +12189,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5308418),
@@ -11735,6 +12214,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5308419),
@@ -11759,6 +12239,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5308420),
@@ -11783,6 +12264,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5308421),
@@ -11807,6 +12289,7 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DEDICATED_WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[];
@@ -11834,6 +12317,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439489),
@@ -11858,6 +12342,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439490),
@@ -11882,6 +12367,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439491),
@@ -11906,6 +12392,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439492),
@@ -11930,6 +12417,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439493),
@@ -11954,6 +12442,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439494),
@@ -11978,6 +12467,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439495),
@@ -12002,6 +12492,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439496),
@@ -12026,6 +12517,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439497),
@@ -12050,6 +12542,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439498),
@@ -12074,6 +12567,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439499),
@@ -12098,6 +12592,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439500),
@@ -12122,6 +12617,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439501),
@@ -12146,6 +12642,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439502),
@@ -12170,6 +12667,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439503),
@@ -12194,6 +12692,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439504),
@@ -12218,6 +12717,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439505),
@@ -12242,6 +12742,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439506),
@@ -12266,6 +12767,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439507),
@@ -12290,6 +12792,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439508),
@@ -12314,6 +12817,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439509),
@@ -12338,6 +12842,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439510),
@@ -12362,6 +12867,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439511),
@@ -12386,6 +12892,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439512),
@@ -12410,6 +12917,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439513),
@@ -12434,6 +12942,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439514),
@@ -12458,6 +12967,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439515),
@@ -12482,6 +12992,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439516),
@@ -12506,6 +13017,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439517),
@@ -12530,6 +13042,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439518),
@@ -12554,6 +13067,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439519),
@@ -12578,6 +13092,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439520),
@@ -12602,6 +13117,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439521),
@@ -12626,6 +13142,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439522),
@@ -12650,6 +13167,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439523),
@@ -12674,6 +13192,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439524),
@@ -12698,6 +13217,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439525),
@@ -12722,6 +13242,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439526),
@@ -12746,6 +13267,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439527),
@@ -12770,6 +13292,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439528),
@@ -12794,6 +13317,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439529),
@@ -12818,6 +13342,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439530),
@@ -12842,6 +13367,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439531),
@@ -12866,6 +13392,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439532),
@@ -12890,6 +13417,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439533),
@@ -12914,6 +13442,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("href"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439534),
@@ -12938,6 +13467,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439535),
@@ -12962,6 +13492,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439536),
@@ -12986,6 +13517,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439537),
@@ -13010,6 +13542,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439538),
@@ -13034,6 +13567,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439539),
@@ -13058,6 +13592,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439540),
@@ -13082,6 +13617,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439541),
@@ -13106,6 +13642,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439542),
@@ -13130,6 +13667,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439543),
@@ -13154,6 +13692,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439544),
@@ -13178,6 +13717,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439545),
@@ -13202,6 +13742,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439546),
@@ -13226,6 +13767,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439547),
@@ -13250,6 +13792,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439548),
@@ -13274,6 +13817,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439549),
@@ -13298,6 +13842,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439550),
@@ -13322,6 +13867,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439551),
@@ -13346,6 +13892,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439552),
@@ -13370,6 +13917,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439553),
@@ -13394,6 +13942,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439554),
@@ -13418,6 +13967,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439555),
@@ -13442,6 +13992,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439556),
@@ -13466,6 +14017,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439557),
@@ -13490,6 +14042,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439558),
@@ -13514,6 +14067,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439559),
@@ -13538,6 +14092,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439560),
@@ -13562,6 +14117,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439561),
@@ -13586,6 +14142,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439562),
@@ -13610,6 +14167,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439563),
@@ -13634,6 +14192,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439564),
@@ -13658,6 +14217,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439565),
@@ -13682,6 +14242,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439566),
@@ -13706,6 +14267,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439567),
@@ -13730,6 +14292,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439568),
@@ -13754,6 +14317,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439569),
@@ -13778,6 +14342,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439570),
@@ -13802,6 +14367,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439571),
@@ -13826,6 +14392,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439572),
@@ -13850,6 +14417,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439573),
@@ -13874,6 +14442,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439574),
@@ -13898,6 +14467,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439575),
@@ -13922,6 +14492,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439576),
@@ -13946,6 +14517,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439577),
@@ -13970,6 +14542,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439578),
@@ -13994,6 +14567,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439579),
@@ -14018,6 +14592,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439580),
@@ -14042,6 +14617,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439581),
@@ -14066,6 +14642,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439582),
@@ -14090,6 +14667,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439583),
@@ -14114,6 +14692,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439584),
@@ -14138,6 +14717,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439585),
@@ -14162,6 +14742,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439586),
@@ -14186,6 +14767,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439587),
@@ -14210,6 +14792,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439588),
@@ -14234,6 +14817,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439589),
@@ -14258,6 +14842,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439590),
@@ -14282,6 +14867,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439591),
@@ -14306,6 +14892,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439592),
@@ -14330,6 +14917,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439593),
@@ -14354,6 +14942,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439594),
@@ -14378,6 +14967,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439595),
@@ -14402,6 +14992,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439596),
@@ -14426,6 +15017,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439597),
@@ -14450,6 +15042,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439598),
@@ -14474,6 +15067,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439599),
@@ -14498,6 +15092,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5439600),
@@ -14522,6 +15117,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
@@ -14548,6 +15144,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505025),
@@ -14572,6 +15169,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505026),
@@ -14596,6 +15194,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505027),
@@ -14620,6 +15219,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505028),
@@ -14644,6 +15244,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505029),
@@ -14668,6 +15269,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505030),
@@ -14692,6 +15294,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505031),
@@ -14716,6 +15319,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505032),
@@ -14740,6 +15344,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505033),
@@ -14764,6 +15369,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505034),
@@ -14788,6 +15394,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5505035),
@@ -14812,6 +15419,7 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DOCUMENT_TIMELINE_MEMBERS: &[GeneratedMember] = &[
@@ -14838,6 +15446,7 @@ pub const DOCUMENT_TIMELINE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
@@ -14864,6 +15473,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636097),
@@ -14888,6 +15498,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636098),
@@ -14912,6 +15523,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636099),
@@ -14936,6 +15548,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636100),
@@ -14960,6 +15573,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636101),
@@ -14984,6 +15598,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636102),
@@ -15008,6 +15623,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636103),
@@ -15032,6 +15648,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636104),
@@ -15056,6 +15673,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636105),
@@ -15080,6 +15698,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636106),
@@ -15104,6 +15723,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636107),
@@ -15128,6 +15748,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636108),
@@ -15152,6 +15773,7 @@ pub const DOCUMENT_TYPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const DRAG_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -15178,6 +15800,7 @@ pub const DRAG_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5701633),
@@ -15202,6 +15825,7 @@ pub const DRAG_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
@@ -15228,6 +15852,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767169),
@@ -15252,6 +15877,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767170),
@@ -15276,6 +15902,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767171),
@@ -15300,6 +15927,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767172),
@@ -15324,6 +15952,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767173),
@@ -15348,6 +15977,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767174),
@@ -15372,6 +16002,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767175),
@@ -15396,6 +16027,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767176),
@@ -15420,6 +16052,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767177),
@@ -15444,6 +16077,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767178),
@@ -15468,6 +16102,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767179),
@@ -15492,6 +16127,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767180),
@@ -15516,6 +16152,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767181),
@@ -15540,6 +16177,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767182),
@@ -15564,6 +16202,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767183),
@@ -15588,6 +16227,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5767184),
@@ -15612,6 +16252,7 @@ pub const EDIT_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -15638,6 +16279,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832705),
@@ -15662,6 +16304,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832706),
@@ -15686,6 +16329,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832707),
@@ -15710,6 +16354,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832708),
@@ -15734,6 +16379,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832709),
@@ -15758,6 +16404,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832710),
@@ -15782,6 +16429,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832711),
@@ -15806,6 +16454,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832712),
@@ -15830,6 +16479,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832713),
@@ -15854,6 +16504,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832714),
@@ -15878,6 +16529,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832715),
@@ -15902,6 +16554,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832716),
@@ -15926,6 +16579,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832717),
@@ -15950,6 +16604,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832718),
@@ -15974,6 +16629,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832719),
@@ -15998,6 +16654,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832720),
@@ -16022,6 +16679,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832721),
@@ -16046,6 +16704,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832722),
@@ -16070,6 +16729,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832723),
@@ -16094,6 +16754,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832724),
@@ -16118,6 +16779,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832725),
@@ -16142,6 +16804,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832726),
@@ -16166,6 +16829,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832727),
@@ -16190,6 +16854,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832728),
@@ -16214,6 +16879,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832729),
@@ -16238,6 +16904,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832730),
@@ -16262,6 +16929,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832731),
@@ -16286,6 +16954,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832732),
@@ -16310,6 +16979,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832733),
@@ -16334,6 +17004,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832734),
@@ -16358,6 +17029,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832735),
@@ -16382,6 +17054,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832736),
@@ -16406,6 +17079,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832737),
@@ -16430,6 +17104,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832738),
@@ -16454,6 +17129,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832739),
@@ -16478,6 +17154,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832740),
@@ -16502,6 +17179,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832741),
@@ -16526,6 +17204,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832742),
@@ -16550,6 +17229,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832743),
@@ -16574,6 +17254,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832744),
@@ -16598,6 +17279,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832745),
@@ -16622,6 +17304,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832746),
@@ -16646,6 +17329,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832747),
@@ -16670,6 +17354,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832748),
@@ -16694,6 +17379,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832749),
@@ -16718,6 +17404,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832750),
@@ -16742,6 +17429,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832751),
@@ -16766,6 +17454,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832752),
@@ -16790,6 +17479,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832753),
@@ -16814,6 +17504,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832754),
@@ -16838,6 +17529,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832755),
@@ -16862,6 +17554,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832756),
@@ -16886,6 +17579,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832757),
@@ -16910,6 +17604,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832758),
@@ -16934,6 +17629,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832759),
@@ -16958,6 +17654,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832760),
@@ -16982,6 +17679,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832761),
@@ -17006,6 +17704,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832762),
@@ -17030,6 +17729,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832763),
@@ -17054,6 +17754,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832764),
@@ -17078,6 +17779,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832765),
@@ -17102,6 +17804,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832766),
@@ -17126,6 +17829,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832767),
@@ -17150,6 +17854,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832768),
@@ -17174,6 +17879,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832769),
@@ -17198,6 +17904,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832770),
@@ -17222,6 +17929,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832771),
@@ -17246,6 +17954,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832772),
@@ -17270,6 +17979,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832773),
@@ -17294,6 +18004,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832774),
@@ -17318,6 +18029,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832775),
@@ -17342,6 +18054,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832776),
@@ -17366,6 +18079,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832777),
@@ -17390,6 +18104,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832778),
@@ -17414,6 +18129,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832779),
@@ -17438,6 +18154,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832780),
@@ -17462,6 +18179,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832781),
@@ -17486,6 +18204,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832782),
@@ -17510,6 +18229,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832783),
@@ -17534,6 +18254,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832784),
@@ -17558,6 +18279,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832785),
@@ -17582,6 +18304,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832786),
@@ -17606,6 +18329,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832787),
@@ -17630,6 +18354,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832788),
@@ -17654,6 +18379,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832789),
@@ -17678,6 +18404,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832790),
@@ -17702,6 +18429,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832791),
@@ -17726,6 +18454,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832792),
@@ -17750,6 +18479,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832793),
@@ -17774,6 +18504,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832794),
@@ -17798,6 +18529,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832795),
@@ -17822,6 +18554,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832796),
@@ -17846,6 +18579,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832797),
@@ -17870,6 +18604,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832798),
@@ -17894,6 +18629,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832799),
@@ -17918,6 +18654,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832800),
@@ -17942,6 +18679,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832801),
@@ -17966,6 +18704,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832802),
@@ -17990,6 +18729,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832803),
@@ -18014,6 +18754,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832804),
@@ -18038,6 +18779,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832805),
@@ -18062,6 +18804,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832806),
@@ -18086,6 +18829,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832807),
@@ -18110,6 +18854,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832808),
@@ -18134,6 +18879,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832809),
@@ -18158,6 +18904,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832810),
@@ -18182,6 +18929,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832811),
@@ -18206,6 +18954,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832812),
@@ -18230,6 +18979,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832813),
@@ -18254,6 +19004,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832814),
@@ -18278,6 +19029,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832815),
@@ -18302,6 +19054,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832816),
@@ -18326,6 +19079,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832817),
@@ -18350,6 +19104,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832818),
@@ -18374,6 +19129,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832819),
@@ -18398,6 +19154,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832820),
@@ -18422,6 +19179,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832821),
@@ -18446,6 +19204,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832822),
@@ -18470,6 +19229,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832823),
@@ -18494,6 +19254,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832824),
@@ -18518,6 +19279,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832825),
@@ -18542,6 +19304,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832826),
@@ -18566,6 +19329,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832827),
@@ -18590,6 +19354,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832828),
@@ -18614,6 +19379,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832829),
@@ -18638,6 +19404,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832830),
@@ -18662,6 +19429,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832831),
@@ -18686,6 +19454,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832832),
@@ -18710,6 +19479,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832833),
@@ -18734,6 +19504,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832834),
@@ -18758,6 +19529,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832835),
@@ -18782,6 +19554,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832836),
@@ -18806,6 +19579,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832837),
@@ -18830,6 +19604,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832838),
@@ -18854,6 +19629,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832839),
@@ -18878,6 +19654,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832840),
@@ -18902,6 +19679,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832841),
@@ -18926,6 +19704,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832842),
@@ -18950,6 +19729,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832843),
@@ -18974,6 +19754,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832844),
@@ -18998,6 +19779,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832845),
@@ -19022,6 +19804,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832846),
@@ -19046,6 +19829,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832847),
@@ -19070,6 +19854,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832848),
@@ -19094,6 +19879,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832849),
@@ -19118,6 +19904,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832850),
@@ -19142,6 +19929,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832851),
@@ -19166,6 +19954,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832852),
@@ -19190,6 +19979,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832853),
@@ -19214,6 +20004,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832854),
@@ -19238,6 +20029,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832855),
@@ -19262,6 +20054,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832856),
@@ -19286,6 +20079,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832857),
@@ -19310,6 +20104,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832858),
@@ -19334,6 +20129,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832859),
@@ -19358,6 +20154,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832860),
@@ -19382,6 +20179,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5832861),
@@ -19406,6 +20204,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
@@ -19432,6 +20231,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898241),
@@ -19456,6 +20256,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898242),
@@ -19480,6 +20281,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898243),
@@ -19504,6 +20306,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898244),
@@ -19528,6 +20331,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898245),
@@ -19552,6 +20356,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898246),
@@ -19576,6 +20381,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898247),
@@ -19600,6 +20406,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898248),
@@ -19624,6 +20431,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898249),
@@ -19648,6 +20456,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898250),
@@ -19672,6 +20481,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898251),
@@ -19696,6 +20506,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898252),
@@ -19720,6 +20531,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898253),
@@ -19744,6 +20556,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898254),
@@ -19768,6 +20581,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898255),
@@ -19792,6 +20606,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898256),
@@ -19816,6 +20631,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898257),
@@ -19840,6 +20656,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898258),
@@ -19864,6 +20681,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898259),
@@ -19888,6 +20706,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898260),
@@ -19912,6 +20731,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898261),
@@ -19936,6 +20756,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898262),
@@ -19960,6 +20781,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898263),
@@ -19984,6 +20806,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898264),
@@ -20008,6 +20831,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898265),
@@ -20032,6 +20856,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898266),
@@ -20056,6 +20881,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898267),
@@ -20080,6 +20906,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898268),
@@ -20104,6 +20931,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898269),
@@ -20128,6 +20956,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898270),
@@ -20152,6 +20981,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898271),
@@ -20176,6 +21006,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898272),
@@ -20200,6 +21031,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898273),
@@ -20224,6 +21056,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898274),
@@ -20248,6 +21081,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898275),
@@ -20272,6 +21106,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898276),
@@ -20296,6 +21131,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898277),
@@ -20320,6 +21156,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898278),
@@ -20344,6 +21181,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898279),
@@ -20368,6 +21206,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898280),
@@ -20392,6 +21231,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898281),
@@ -20416,6 +21256,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898282),
@@ -20440,6 +21281,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898283),
@@ -20464,6 +21306,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898284),
@@ -20488,6 +21331,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898285),
@@ -20512,6 +21356,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898286),
@@ -20536,6 +21381,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898287),
@@ -20560,6 +21406,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898288),
@@ -20584,6 +21431,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898289),
@@ -20608,6 +21456,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898290),
@@ -20632,6 +21481,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898291),
@@ -20656,6 +21506,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898292),
@@ -20680,6 +21531,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898293),
@@ -20704,6 +21556,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898294),
@@ -20728,6 +21581,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898295),
@@ -20752,6 +21606,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898296),
@@ -20776,6 +21631,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898297),
@@ -20800,6 +21656,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898298),
@@ -20824,6 +21681,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898299),
@@ -20848,6 +21706,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898300),
@@ -20872,6 +21731,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898301),
@@ -20896,6 +21756,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898302),
@@ -20920,6 +21781,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898303),
@@ -20944,6 +21806,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5898304),
@@ -20968,6 +21831,7 @@ pub const ELEMENT_INTERNALS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -20994,6 +21858,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5963777),
@@ -21018,6 +21883,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5963778),
@@ -21042,6 +21908,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5963779),
@@ -21066,6 +21933,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5963780),
@@ -21090,6 +21958,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(5963781),
@@ -21114,6 +21983,7 @@ pub const ERROR_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -21140,6 +22010,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029313),
@@ -21164,6 +22035,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029314),
@@ -21188,6 +22060,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029315),
@@ -21212,6 +22085,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029316),
@@ -21236,6 +22110,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029317),
@@ -21260,6 +22135,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029318),
@@ -21284,6 +22160,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029319),
@@ -21308,6 +22185,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029320),
@@ -21332,6 +22210,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029321),
@@ -21356,6 +22235,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029322),
@@ -21380,6 +22260,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029323),
@@ -21404,6 +22285,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029324),
@@ -21428,6 +22310,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029325),
@@ -21452,6 +22335,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029326),
@@ -21476,6 +22360,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029327),
@@ -21500,6 +22385,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029328),
@@ -21524,6 +22410,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029329),
@@ -21548,6 +22435,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029330),
@@ -21572,6 +22460,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029331),
@@ -21596,6 +22485,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029332),
@@ -21620,6 +22510,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029333),
@@ -21644,6 +22535,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6029334),
@@ -21668,6 +22560,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
@@ -21694,6 +22587,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6094849),
@@ -21718,6 +22612,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6094850),
@@ -21742,6 +22637,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6094851),
@@ -21766,6 +22662,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const EXTENDABLE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -21792,6 +22689,7 @@ pub const EXTENDABLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6160385),
@@ -21816,6 +22714,7 @@ pub const EXTENDABLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -21842,6 +22741,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6225921),
@@ -21866,6 +22766,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6225922),
@@ -21890,6 +22791,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6225923),
@@ -21914,6 +22816,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6225924),
@@ -21938,6 +22841,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6225925),
@@ -21962,6 +22866,7 @@ pub const EXTENDABLE_MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -21988,6 +22893,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291457),
@@ -22012,6 +22918,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291458),
@@ -22036,6 +22943,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291459),
@@ -22060,6 +22968,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291460),
@@ -22084,6 +22993,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291461),
@@ -22108,6 +23018,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291462),
@@ -22132,6 +23043,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6291463),
@@ -22156,6 +23068,7 @@ pub const FETCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FILE_MEMBERS: &[GeneratedMember] = &[
@@ -22182,6 +23095,7 @@ pub const FILE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6356993),
@@ -22206,6 +23120,7 @@ pub const FILE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6356994),
@@ -22230,6 +23145,7 @@ pub const FILE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6356995),
@@ -22254,6 +23170,7 @@ pub const FILE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FILE_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -22280,6 +23197,7 @@ pub const FILE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6422529),
@@ -22304,6 +23222,7 @@ pub const FILE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
@@ -22330,6 +23249,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488065),
@@ -22354,6 +23274,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488066),
@@ -22378,6 +23299,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488067),
@@ -22402,6 +23324,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488068),
@@ -22426,6 +23349,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488069),
@@ -22450,6 +23374,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488070),
@@ -22474,6 +23399,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488071),
@@ -22498,6 +23424,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488072),
@@ -22522,6 +23449,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488073),
@@ -22546,6 +23474,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488074),
@@ -22570,6 +23499,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488075),
@@ -22594,6 +23524,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488076),
@@ -22618,6 +23549,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488077),
@@ -22642,6 +23574,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488078),
@@ -22666,6 +23599,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488079),
@@ -22690,6 +23624,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488080),
@@ -22714,6 +23649,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6488081),
@@ -22738,6 +23674,7 @@ pub const FILE_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
@@ -22764,6 +23701,7 @@ pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6553601),
@@ -22788,6 +23726,7 @@ pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6553602),
@@ -22812,6 +23751,7 @@ pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6553603),
@@ -22836,6 +23776,7 @@ pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6553604),
@@ -22860,6 +23801,7 @@ pub const FILE_READER_SYNC_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FOCUS_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -22886,6 +23828,7 @@ pub const FOCUS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6619137),
@@ -22910,6 +23853,7 @@ pub const FOCUS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
@@ -22936,6 +23880,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684673),
@@ -22960,6 +23905,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684674),
@@ -22984,6 +23930,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684675),
@@ -23008,6 +23955,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684676),
@@ -23032,6 +23980,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684677),
@@ -23056,6 +24005,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684678),
@@ -23080,6 +24030,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684679),
@@ -23104,6 +24055,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684680),
@@ -23128,6 +24080,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684681),
@@ -23152,6 +24105,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684682),
@@ -23176,6 +24130,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684683),
@@ -23200,6 +24155,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684684),
@@ -23224,6 +24180,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684685),
@@ -23248,6 +24205,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6684686),
@@ -23272,6 +24230,7 @@ pub const FONT_FACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
@@ -23298,6 +24257,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750209),
@@ -23322,6 +24282,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750210),
@@ -23346,6 +24307,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750211),
@@ -23370,6 +24332,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750212),
@@ -23394,6 +24357,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750213),
@@ -23418,6 +24382,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750214),
@@ -23442,6 +24407,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750215),
@@ -23466,6 +24432,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750216),
@@ -23490,6 +24457,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750217),
@@ -23514,6 +24482,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750218),
@@ -23538,6 +24507,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750219),
@@ -23562,6 +24532,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6750220),
@@ -23586,6 +24557,7 @@ pub const FONT_FACE_SET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FONT_FACE_SET_LOAD_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -23612,6 +24584,7 @@ pub const FONT_FACE_SET_LOAD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6815745),
@@ -23636,6 +24609,7 @@ pub const FONT_FACE_SET_LOAD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
@@ -23662,6 +24636,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881281),
@@ -23686,6 +24661,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881282),
@@ -23710,6 +24686,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881283),
@@ -23734,6 +24711,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881284),
@@ -23758,6 +24736,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881285),
@@ -23782,6 +24761,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881286),
@@ -23806,6 +24786,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6881287),
@@ -23830,6 +24811,7 @@ pub const FORM_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const FORM_DATA_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -23856,6 +24838,7 @@ pub const FORM_DATA_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(6946817),
@@ -23880,6 +24863,7 @@ pub const FORM_DATA_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
@@ -23906,6 +24890,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012353),
@@ -23930,6 +24915,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012354),
@@ -23954,6 +24940,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012355),
@@ -23978,6 +24965,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012356),
@@ -24002,6 +24990,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012357),
@@ -24026,6 +25015,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012358),
@@ -24050,6 +25040,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7012359),
@@ -24074,6 +25065,7 @@ pub const GEOLOCATION_COORDINATES_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const GEOLOCATION_POSITION_MEMBERS: &[GeneratedMember] = &[
@@ -24100,6 +25092,7 @@ pub const GEOLOCATION_POSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7077889),
@@ -24124,6 +25117,7 @@ pub const GEOLOCATION_POSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7077890),
@@ -24148,6 +25142,7 @@ pub const GEOLOCATION_POSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
@@ -24174,6 +25169,7 @@ pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7143425),
@@ -24198,6 +25194,7 @@ pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7143426),
@@ -24222,6 +25219,7 @@ pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7143427),
@@ -24246,6 +25244,7 @@ pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7143428),
@@ -24270,6 +25269,7 @@ pub const GEOLOCATION_POSITION_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
@@ -24296,6 +25296,7 @@ pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7208961),
@@ -24320,6 +25321,7 @@ pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7208962),
@@ -24344,6 +25346,7 @@ pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7208963),
@@ -24368,6 +25371,7 @@ pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -24394,6 +25398,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274497),
@@ -24418,6 +25423,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274498),
@@ -24442,6 +25448,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274499),
@@ -24466,6 +25473,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274500),
@@ -24490,6 +25498,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274501),
@@ -24514,6 +25523,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274502),
@@ -24538,6 +25548,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274503),
@@ -24562,6 +25573,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274504),
@@ -24586,6 +25598,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274505),
@@ -24610,6 +25623,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274506),
@@ -24634,6 +25648,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274507),
@@ -24658,6 +25673,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274508),
@@ -24682,6 +25698,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274509),
@@ -24706,6 +25723,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274510),
@@ -24730,6 +25748,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274511),
@@ -24754,6 +25773,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274512),
@@ -24778,6 +25798,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274513),
@@ -24802,6 +25823,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7274514),
@@ -24826,6 +25848,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("interestfor"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -24852,6 +25875,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340033),
@@ -24876,6 +25900,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340034),
@@ -24900,6 +25925,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340035),
@@ -24924,6 +25950,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340036),
@@ -24948,6 +25975,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340037),
@@ -24972,6 +26000,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340038),
@@ -24996,6 +26025,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340039),
@@ -25020,6 +26050,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340040),
@@ -25044,6 +26075,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340041),
@@ -25068,6 +26100,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340042),
@@ -25092,6 +26125,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340043),
@@ -25116,6 +26150,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340044),
@@ -25140,6 +26175,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340045),
@@ -25164,6 +26200,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340046),
@@ -25188,6 +26225,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340047),
@@ -25212,6 +26250,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340048),
@@ -25236,6 +26275,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340049),
@@ -25260,6 +26300,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340050),
@@ -25284,6 +26325,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7340051),
@@ -25308,6 +26350,7 @@ pub const H_T_M_L_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("interestfor"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_AUDIO_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -25335,6 +26378,7 @@ pub const H_T_M_L_BASE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7471105),
@@ -25359,6 +26403,7 @@ pub const H_T_M_L_BASE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -25385,6 +26430,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536641),
@@ -25409,6 +26455,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("background"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536642),
@@ -25433,6 +26480,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("text"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536643),
@@ -25457,6 +26505,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("link"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536644),
@@ -25481,6 +26530,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("vlink"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536645),
@@ -25505,6 +26555,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("alink"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536646),
@@ -25529,6 +26580,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("bgcolor"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536647),
@@ -25553,6 +26605,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536648),
@@ -25577,6 +26630,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536649),
@@ -25601,6 +26655,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536650),
@@ -25625,6 +26680,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536651),
@@ -25649,6 +26705,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536652),
@@ -25673,6 +26730,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7536653),
@@ -25697,6 +26755,7 @@ pub const H_T_M_L_BODY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -25723,6 +26782,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602177),
@@ -25747,6 +26807,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602178),
@@ -25771,6 +26832,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602179),
@@ -25795,6 +26857,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602180),
@@ -25819,6 +26882,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602181),
@@ -25843,6 +26907,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602182),
@@ -25867,6 +26932,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602183),
@@ -25891,6 +26957,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602184),
@@ -25915,6 +26982,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602185),
@@ -25939,6 +27007,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602186),
@@ -25963,6 +27032,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602187),
@@ -25987,6 +27057,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602188),
@@ -26011,6 +27082,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602189),
@@ -26035,6 +27107,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602190),
@@ -26059,6 +27132,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602191),
@@ -26083,6 +27157,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602192),
@@ -26107,6 +27182,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602193),
@@ -26131,6 +27207,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602194),
@@ -26155,6 +27232,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7602195),
@@ -26179,6 +27257,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("interestfor"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26205,6 +27284,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667713),
@@ -26229,6 +27309,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667714),
@@ -26253,6 +27334,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667715),
@@ -26277,6 +27359,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667716),
@@ -26301,6 +27384,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667717),
@@ -26325,6 +27409,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7667718),
@@ -26349,6 +27434,7 @@ pub const H_T_M_L_CAMERA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26375,6 +27461,7 @@ pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7733249),
@@ -26399,6 +27486,7 @@ pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7733250),
@@ -26423,6 +27511,7 @@ pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7733251),
@@ -26447,6 +27536,7 @@ pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7733252),
@@ -26471,6 +27561,7 @@ pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_COLLECTION_MEMBERS: &[GeneratedMember] = &[
@@ -26497,6 +27588,7 @@ pub const H_T_M_L_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7798785),
@@ -26521,6 +27613,7 @@ pub const H_T_M_L_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7798786),
@@ -26545,6 +27638,7 @@ pub const H_T_M_L_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_D_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26571,6 +27665,7 @@ pub const H_T_M_L_D_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7864321),
@@ -26595,6 +27690,7 @@ pub const H_T_M_L_D_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("compact"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_DATA_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26621,6 +27717,7 @@ pub const H_T_M_L_DATA_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_DETAILS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26647,6 +27744,7 @@ pub const H_T_M_L_DETAILS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7995393),
@@ -26671,6 +27769,7 @@ pub const H_T_M_L_DETAILS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(7995394),
@@ -26695,6 +27794,7 @@ pub const H_T_M_L_DETAILS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26721,6 +27821,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8060929),
@@ -26745,6 +27846,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8060930),
@@ -26769,6 +27871,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8060931),
@@ -26793,6 +27896,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8060932),
@@ -26817,6 +27921,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8060933),
@@ -26841,6 +27946,7 @@ pub const H_T_M_L_DIALOG_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_DIRECTORY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26867,6 +27973,7 @@ pub const H_T_M_L_DIRECTORY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8126465),
@@ -26891,6 +27998,7 @@ pub const H_T_M_L_DIRECTORY_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("compact"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_DIV_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -26917,6 +28025,7 @@ pub const H_T_M_L_DIV_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8192001),
@@ -26941,11 +28050,1312 @@ pub const H_T_M_L_DIV_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(8257536),
+        name: "onabort",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257537),
+        name: "onauxclick",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257538),
+        name: "onbeforeinput",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257539),
+        name: "onbeforematch",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257540),
+        name: "oncancel",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257541),
+        name: "oncanplay",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257542),
+        name: "oncanplaythrough",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257543),
+        name: "onclose",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257544),
+        name: "oncontextlost",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257545),
+        name: "oncontextmenu",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257546),
+        name: "oncontextrestored",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257547),
+        name: "oncuechange",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257548),
+        name: "ondblclick",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257549),
+        name: "ondurationchange",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257550),
+        name: "onemptied",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257551),
+        name: "onended",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257552),
+        name: "oninvalid",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257553),
+        name: "onkeypress",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257554),
+        name: "onloadeddata",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257555),
+        name: "onloadedmetadata",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257556),
+        name: "onloadstart",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257557),
+        name: "onmousedown",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257558),
+        name: "onmouseenter",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: true,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257559),
+        name: "onmouseleave",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: true,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257560),
+        name: "onmousemove",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257561),
+        name: "onmouseout",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257562),
+        name: "onmouseover",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257563),
+        name: "onmouseup",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257564),
+        name: "onpause",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257565),
+        name: "onplay",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257566),
+        name: "onplaying",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257567),
+        name: "onprogress",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257568),
+        name: "onratechange",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257569),
+        name: "onreset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257570),
+        name: "onresize",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257571),
+        name: "onscroll",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257572),
+        name: "onscrollend",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257573),
+        name: "onsecuritypolicyviolation",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257574),
+        name: "onseeked",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257575),
+        name: "onseeking",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257576),
+        name: "onselect",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257577),
+        name: "onslotchange",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257578),
+        name: "onstalled",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257579),
+        name: "onsuspend",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257580),
+        name: "ontimeupdate",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257581),
+        name: "onvolumechange",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257582),
+        name: "onwaiting",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257583),
+        name: "onwebkitanimationend",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257584),
+        name: "onwebkitanimationiteration",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257585),
+        name: "onwebkitanimationstart",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257586),
+        name: "onwebkittransitionend",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257587),
+        name: "onwheel",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("EventHandler"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(8257588),
         name: "inputMode",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -26967,9 +29377,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257537),
+        id: GeneratedMemberId(8257589),
         name: "enterKeyHint",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -26991,9 +29402,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257538),
+        id: GeneratedMemberId(8257590),
         name: "autofocus",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27015,9 +29427,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257539),
+        id: GeneratedMemberId(8257591),
         name: "nonce",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27039,9 +29452,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257540),
+        id: GeneratedMemberId(8257592),
         name: "popover",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27063,9 +29477,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257541),
+        id: GeneratedMemberId(8257593),
         name: "oncommand",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27087,9 +29502,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257542),
+        id: GeneratedMemberId(8257594),
         name: "onbeforetoggle",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27111,9 +29527,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257543),
+        id: GeneratedMemberId(8257595),
         name: "ontoggle",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27135,9 +29552,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257544),
+        id: GeneratedMemberId(8257596),
         name: "showPopover",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -27159,9 +29577,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257545),
+        id: GeneratedMemberId(8257597),
         name: "hidePopover",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -27183,9 +29602,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257546),
+        id: GeneratedMemberId(8257598),
         name: "togglePopover",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -27207,9 +29627,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257547),
+        id: GeneratedMemberId(8257599),
         name: "ondragstart",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27231,9 +29652,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257548),
+        id: GeneratedMemberId(8257600),
         name: "ondrag",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27255,9 +29677,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257549),
+        id: GeneratedMemberId(8257601),
         name: "ondragenter",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27279,9 +29702,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257550),
+        id: GeneratedMemberId(8257602),
         name: "ondragleave",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27303,9 +29727,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257551),
+        id: GeneratedMemberId(8257603),
         name: "ondragover",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27327,9 +29752,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257552),
+        id: GeneratedMemberId(8257604),
         name: "ondrop",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27351,9 +29777,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257553),
+        id: GeneratedMemberId(8257605),
         name: "ondragend",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27375,9 +29802,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257554),
+        id: GeneratedMemberId(8257606),
         name: "oncopy",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27399,9 +29827,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257555),
+        id: GeneratedMemberId(8257607),
         name: "oncut",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27423,9 +29852,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257556),
+        id: GeneratedMemberId(8257608),
         name: "onpaste",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27447,9 +29877,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257557),
+        id: GeneratedMemberId(8257609),
         name: "tabIndex",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27471,9 +29902,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257558),
+        id: GeneratedMemberId(8257610),
         name: "offsetWidth",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27495,9 +29927,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257559),
+        id: GeneratedMemberId(8257611),
         name: "offsetHeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27519,9 +29952,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257560),
+        id: GeneratedMemberId(8257612),
         name: "title",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27543,9 +29977,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257561),
+        id: GeneratedMemberId(8257613),
         name: "lang",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27567,9 +30002,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257562),
+        id: GeneratedMemberId(8257614),
         name: "dir",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27591,9 +30027,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257563),
+        id: GeneratedMemberId(8257615),
         name: "accessKey",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27615,9 +30052,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257564),
+        id: GeneratedMemberId(8257616),
         name: "translate",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27639,9 +30077,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257565),
+        id: GeneratedMemberId(8257617),
         name: "spellcheck",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27663,9 +30102,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257566),
+        id: GeneratedMemberId(8257618),
         name: "hidden",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27687,9 +30127,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257567),
+        id: GeneratedMemberId(8257619),
         name: "inert",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27711,9 +30152,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257568),
+        id: GeneratedMemberId(8257620),
         name: "innerText",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27735,9 +30177,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257569),
+        id: GeneratedMemberId(8257621),
         name: "style",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27759,9 +30202,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257570),
+        id: GeneratedMemberId(8257622),
         name: "dataset",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27783,9 +30227,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257571),
+        id: GeneratedMemberId(8257623),
         name: "onclick",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27807,9 +30252,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257572),
+        id: GeneratedMemberId(8257624),
         name: "oninput",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27831,9 +30277,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257573),
+        id: GeneratedMemberId(8257625),
         name: "onchange",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27855,9 +30302,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257574),
+        id: GeneratedMemberId(8257626),
         name: "onsubmit",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27879,9 +30327,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257575),
+        id: GeneratedMemberId(8257627),
         name: "onformdata",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27903,9 +30352,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257576),
+        id: GeneratedMemberId(8257628),
         name: "onfocus",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27927,9 +30377,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257577),
+        id: GeneratedMemberId(8257629),
         name: "onblur",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27951,9 +30402,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257578),
+        id: GeneratedMemberId(8257630),
         name: "onkeydown",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27975,9 +30427,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257579),
+        id: GeneratedMemberId(8257631),
         name: "onkeyup",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27999,9 +30452,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257580),
+        id: GeneratedMemberId(8257632),
         name: "onload",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28023,9 +30477,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257581),
+        id: GeneratedMemberId(8257633),
         name: "onerror",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28047,9 +30502,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257582),
+        id: GeneratedMemberId(8257634),
         name: "draggable",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28071,9 +30527,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257583),
+        id: GeneratedMemberId(8257635),
         name: "contentEditable",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28095,9 +30552,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257584),
+        id: GeneratedMemberId(8257636),
         name: "isContentEditable",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28119,9 +30577,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257585),
+        id: GeneratedMemberId(8257637),
         name: "click",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -28143,9 +30602,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257586),
+        id: GeneratedMemberId(8257638),
         name: "focus",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -28167,9 +30627,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257587),
+        id: GeneratedMemberId(8257639),
         name: "blur",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -28191,9 +30652,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257588),
+        id: GeneratedMemberId(8257640),
         name: "attachInternals",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -28215,9 +30677,10 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(8257589),
+        id: GeneratedMemberId(8257641),
         name: "editContext",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28239,6 +30702,7 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -28265,6 +30729,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8323073),
@@ -28289,6 +30754,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8323074),
@@ -28313,6 +30779,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8323075),
@@ -28337,6 +30804,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8323076),
@@ -28361,6 +30829,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8323077),
@@ -28385,6 +30854,7 @@ pub const H_T_M_L_EMBED_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -28411,6 +30881,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388609),
@@ -28435,6 +30906,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388610),
@@ -28459,6 +30931,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388611),
@@ -28483,6 +30956,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388612),
@@ -28507,6 +30981,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388613),
@@ -28531,6 +31006,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388614),
@@ -28555,6 +31031,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388615),
@@ -28579,6 +31056,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388616),
@@ -28603,6 +31081,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388617),
@@ -28627,6 +31106,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8388618),
@@ -28651,6 +31131,7 @@ pub const H_T_M_L_FIELD_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FONT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -28677,6 +31158,7 @@ pub const H_T_M_L_FONT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8454145),
@@ -28701,6 +31183,7 @@ pub const H_T_M_L_FONT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("color"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8454146),
@@ -28725,6 +31208,7 @@ pub const H_T_M_L_FONT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("face"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8454147),
@@ -28749,6 +31233,7 @@ pub const H_T_M_L_FONT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("size"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FORM_CONTROLS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
@@ -28775,6 +31260,7 @@ pub const H_T_M_L_FORM_CONTROLS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -28801,6 +31287,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585217),
@@ -28825,6 +31312,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585218),
@@ -28849,6 +31337,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585219),
@@ -28873,6 +31362,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585220),
@@ -28897,6 +31387,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585221),
@@ -28921,6 +31412,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585222),
@@ -28945,6 +31437,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585223),
@@ -28969,6 +31462,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585224),
@@ -28993,6 +31487,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585225),
@@ -29017,6 +31512,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585226),
@@ -29041,6 +31537,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585227),
@@ -29065,6 +31562,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585228),
@@ -29089,6 +31587,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585229),
@@ -29113,6 +31612,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585230),
@@ -29137,6 +31637,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585231),
@@ -29161,6 +31662,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585232),
@@ -29185,6 +31687,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8585233),
@@ -29209,6 +31712,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -29235,6 +31739,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650753),
@@ -29259,6 +31764,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650754),
@@ -29283,6 +31789,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650755),
@@ -29307,6 +31814,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("scrolling"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650756),
@@ -29331,6 +31839,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("frameborder"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650757),
@@ -29355,6 +31864,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650758),
@@ -29379,6 +31889,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("noresize"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650759),
@@ -29403,6 +31914,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("marginheight"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650760),
@@ -29427,6 +31939,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("marginwidth"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650761),
@@ -29451,6 +31964,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8650762),
@@ -29475,6 +31989,7 @@ pub const H_T_M_L_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -29501,6 +32016,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("cols"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716289),
@@ -29525,6 +32041,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("rows"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716290),
@@ -29549,6 +32066,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716291),
@@ -29573,6 +32091,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716292),
@@ -29597,6 +32116,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716293),
@@ -29621,6 +32141,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716294),
@@ -29645,6 +32166,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716295),
@@ -29669,6 +32191,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8716296),
@@ -29693,6 +32216,7 @@ pub const H_T_M_L_FRAME_SET_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -29719,6 +32243,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781825),
@@ -29743,6 +32268,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781826),
@@ -29767,6 +32293,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781827),
@@ -29791,6 +32318,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("autolocate"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781828),
@@ -29815,6 +32343,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("watch"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781829),
@@ -29839,6 +32368,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781830),
@@ -29863,6 +32393,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781831),
@@ -29887,6 +32418,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781832),
@@ -29911,6 +32443,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781833),
@@ -29935,6 +32468,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781834),
@@ -29959,6 +32493,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781835),
@@ -29983,6 +32518,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8781836),
@@ -30007,6 +32543,7 @@ pub const H_T_M_L_GEOLOCATION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -30033,6 +32570,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8847361),
@@ -30057,6 +32595,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8847362),
@@ -30081,6 +32620,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("color"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8847363),
@@ -30105,6 +32645,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("noshade"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8847364),
@@ -30129,6 +32670,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("size"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8847365),
@@ -30153,6 +32695,7 @@ pub const H_T_M_L_H_R_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("width"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_HEAD_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -30180,6 +32723,7 @@ pub const H_T_M_L_HEADING_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(8978433),
@@ -30204,6 +32748,7 @@ pub const H_T_M_L_HEADING_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_HTML_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -30230,6 +32775,7 @@ pub const H_T_M_L_HTML_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9043969),
@@ -30254,6 +32800,7 @@ pub const H_T_M_L_HTML_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("version"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -30280,6 +32827,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109505),
@@ -30304,6 +32852,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109506),
@@ -30328,6 +32877,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109507),
@@ -30352,6 +32902,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109508),
@@ -30376,6 +32927,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109509),
@@ -30400,6 +32952,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109510),
@@ -30424,6 +32977,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109511),
@@ -30448,6 +33002,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109512),
@@ -30472,6 +33027,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109513),
@@ -30496,6 +33052,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109514),
@@ -30520,6 +33077,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109515),
@@ -30544,6 +33102,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9109516),
@@ -30568,6 +33127,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -30594,6 +33154,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175041),
@@ -30618,6 +33179,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175042),
@@ -30642,6 +33204,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175043),
@@ -30666,6 +33229,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175044),
@@ -30690,6 +33254,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175045),
@@ -30714,6 +33279,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175046),
@@ -30738,6 +33304,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175047),
@@ -30762,6 +33329,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175048),
@@ -30786,6 +33354,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175049),
@@ -30810,6 +33379,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175050),
@@ -30834,6 +33404,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175051),
@@ -30858,6 +33429,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175052),
@@ -30882,6 +33454,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9175053),
@@ -30906,6 +33479,7 @@ pub const H_T_M_L_IMAGE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -30932,6 +33506,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240577),
@@ -30956,6 +33531,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240578),
@@ -30980,6 +33556,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240579),
@@ -31004,6 +33581,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240580),
@@ -31028,6 +33606,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240581),
@@ -31052,6 +33631,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240582),
@@ -31076,6 +33656,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240583),
@@ -31100,6 +33681,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240584),
@@ -31124,6 +33706,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240585),
@@ -31148,6 +33731,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240586),
@@ -31172,6 +33756,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240587),
@@ -31196,6 +33781,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240588),
@@ -31220,6 +33806,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240589),
@@ -31244,6 +33831,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240590),
@@ -31268,6 +33856,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240591),
@@ -31292,6 +33881,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240592),
@@ -31316,6 +33906,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240593),
@@ -31340,6 +33931,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240594),
@@ -31364,6 +33956,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240595),
@@ -31388,6 +33981,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240596),
@@ -31412,6 +34006,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240597),
@@ -31436,6 +34031,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240598),
@@ -31460,6 +34056,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240599),
@@ -31484,6 +34081,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240600),
@@ -31508,6 +34106,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240601),
@@ -31532,6 +34131,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240602),
@@ -31556,6 +34156,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240603),
@@ -31580,6 +34181,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240604),
@@ -31604,6 +34206,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240605),
@@ -31628,6 +34231,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240606),
@@ -31652,6 +34256,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240607),
@@ -31676,6 +34281,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240608),
@@ -31700,6 +34306,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240609),
@@ -31724,6 +34331,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240610),
@@ -31748,6 +34356,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240611),
@@ -31772,6 +34381,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240612),
@@ -31796,6 +34406,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240613),
@@ -31820,6 +34431,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240614),
@@ -31844,6 +34456,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240615),
@@ -31868,6 +34481,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240616),
@@ -31892,6 +34506,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240617),
@@ -31916,6 +34531,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240618),
@@ -31940,6 +34556,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240619),
@@ -31964,6 +34581,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240620),
@@ -31988,6 +34606,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240621),
@@ -32012,6 +34631,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240622),
@@ -32036,6 +34656,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240623),
@@ -32060,6 +34681,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240624),
@@ -32084,6 +34706,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240625),
@@ -32108,6 +34731,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240626),
@@ -32132,6 +34756,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240627),
@@ -32156,6 +34781,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240628),
@@ -32180,6 +34806,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240629),
@@ -32204,6 +34831,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240630),
@@ -32228,6 +34856,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240631),
@@ -32252,6 +34881,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240632),
@@ -32276,6 +34906,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240633),
@@ -32300,6 +34931,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9240634),
@@ -32324,6 +34956,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_INSTALL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -32350,6 +34983,7 @@ pub const H_T_M_L_INSTALL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9306113),
@@ -32374,6 +35008,7 @@ pub const H_T_M_L_INSTALL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9306114),
@@ -32398,6 +35033,7 @@ pub const H_T_M_L_INSTALL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9306115),
@@ -32422,6 +35058,7 @@ pub const H_T_M_L_INSTALL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_L_I_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -32448,6 +35085,7 @@ pub const H_T_M_L_L_I_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9371649),
@@ -32472,6 +35110,7 @@ pub const H_T_M_L_L_I_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9371650),
@@ -32496,6 +35135,7 @@ pub const H_T_M_L_L_I_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("type"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_LABEL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -32522,6 +35162,7 @@ pub const H_T_M_L_LABEL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9437185),
@@ -32546,6 +35187,7 @@ pub const H_T_M_L_LABEL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9437186),
@@ -32570,6 +35212,7 @@ pub const H_T_M_L_LABEL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -32596,6 +35239,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502721),
@@ -32620,6 +35264,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502722),
@@ -32644,6 +35289,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502723),
@@ -32668,6 +35314,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("hreflang"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502724),
@@ -32692,6 +35339,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("charset"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502725),
@@ -32716,6 +35364,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("rev"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502726),
@@ -32740,6 +35389,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("target"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502727),
@@ -32764,6 +35414,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502728),
@@ -32788,6 +35439,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502729),
@@ -32812,6 +35464,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502730),
@@ -32836,6 +35489,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502731),
@@ -32860,6 +35514,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502732),
@@ -32884,6 +35539,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502733),
@@ -32908,6 +35564,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502734),
@@ -32932,6 +35589,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502735),
@@ -32956,6 +35614,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502736),
@@ -32980,6 +35639,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9502737),
@@ -33004,6 +35664,7 @@ pub const H_T_M_L_LINK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -33030,6 +35691,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568257),
@@ -33054,6 +35716,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568258),
@@ -33078,6 +35741,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("bgcolor"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568259),
@@ -33102,6 +35766,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568260),
@@ -33126,6 +35791,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("height"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568261),
@@ -33150,6 +35816,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568262),
@@ -33174,6 +35841,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568263),
@@ -33198,6 +35866,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568264),
@@ -33222,6 +35891,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("truespeed"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568265),
@@ -33246,6 +35916,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9568266),
@@ -33270,6 +35941,7 @@ pub const H_T_M_L_MARQUEE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("width"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -33296,6 +35968,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633793),
@@ -33320,6 +35993,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633794),
@@ -33344,6 +36018,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633795),
@@ -33368,6 +36043,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633796),
@@ -33392,6 +36068,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633797),
@@ -33416,6 +36093,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633798),
@@ -33440,6 +36118,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633799),
@@ -33464,6 +36143,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633800),
@@ -33488,6 +36168,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633801),
@@ -33512,6 +36193,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633802),
@@ -33536,6 +36218,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633803),
@@ -33560,6 +36243,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633804),
@@ -33584,6 +36268,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633805),
@@ -33608,6 +36293,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633806),
@@ -33632,6 +36318,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633807),
@@ -33656,6 +36343,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633808),
@@ -33680,6 +36368,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633809),
@@ -33704,6 +36393,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633810),
@@ -33728,6 +36418,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633811),
@@ -33752,6 +36443,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633812),
@@ -33776,6 +36468,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633813),
@@ -33800,6 +36493,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633814),
@@ -33824,6 +36518,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633815),
@@ -33848,6 +36543,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633816),
@@ -33872,6 +36568,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633817),
@@ -33896,6 +36593,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633818),
@@ -33920,6 +36618,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633819),
@@ -33944,6 +36643,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633820),
@@ -33968,6 +36668,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633821),
@@ -33992,6 +36693,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633822),
@@ -34016,6 +36718,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633823),
@@ -34040,6 +36743,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633824),
@@ -34064,6 +36768,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633825),
@@ -34088,6 +36793,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633826),
@@ -34112,6 +36818,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633827),
@@ -34136,6 +36843,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633828),
@@ -34160,6 +36868,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633829),
@@ -34184,6 +36893,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633830),
@@ -34208,6 +36918,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633831),
@@ -34232,6 +36943,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633832),
@@ -34256,6 +36968,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633833),
@@ -34280,6 +36993,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633834),
@@ -34304,6 +37018,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633835),
@@ -34328,6 +37043,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633836),
@@ -34352,6 +37068,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9633837),
@@ -34376,6 +37093,7 @@ pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_MENU_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34402,6 +37120,7 @@ pub const H_T_M_L_MENU_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9699329),
@@ -34426,6 +37145,7 @@ pub const H_T_M_L_MENU_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("compact"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34452,6 +37172,7 @@ pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("name"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9764865),
@@ -34476,6 +37197,7 @@ pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("content"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9764866),
@@ -34500,6 +37222,7 @@ pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("http-equiv"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9764867),
@@ -34524,6 +37247,7 @@ pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("media"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9764868),
@@ -34548,6 +37272,7 @@ pub const H_T_M_L_META_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("scheme"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_METER_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34574,6 +37299,7 @@ pub const H_T_M_L_METER_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34600,6 +37326,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895937),
@@ -34624,6 +37351,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895938),
@@ -34648,6 +37376,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895939),
@@ -34672,6 +37401,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895940),
@@ -34696,6 +37426,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895941),
@@ -34720,6 +37451,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9895942),
@@ -34744,6 +37476,7 @@ pub const H_T_M_L_MICROPHONE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_MOD_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34770,6 +37503,7 @@ pub const H_T_M_L_MOD_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9961473),
@@ -34794,6 +37528,7 @@ pub const H_T_M_L_MOD_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(9961474),
@@ -34818,6 +37553,7 @@ pub const H_T_M_L_MOD_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("datetime"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34844,6 +37580,7 @@ pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10027009),
@@ -34868,6 +37605,7 @@ pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("reversed"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10027010),
@@ -34892,6 +37630,7 @@ pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10027011),
@@ -34916,6 +37655,7 @@ pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("type"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10027012),
@@ -34940,6 +37680,7 @@ pub const H_T_M_L_O_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("compact"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -34966,6 +37707,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092545),
@@ -34990,6 +37732,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092546),
@@ -35014,6 +37757,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092547),
@@ -35038,6 +37782,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092548),
@@ -35062,6 +37807,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092549),
@@ -35086,6 +37832,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092550),
@@ -35110,6 +37857,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092551),
@@ -35134,6 +37882,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092552),
@@ -35158,6 +37907,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092553),
@@ -35182,6 +37932,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092554),
@@ -35206,6 +37957,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092555),
@@ -35230,6 +37982,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092556),
@@ -35254,6 +38007,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092557),
@@ -35278,6 +38032,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10092558),
@@ -35302,6 +38057,7 @@ pub const H_T_M_L_OBJECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_OPT_GROUP_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -35328,6 +38084,7 @@ pub const H_T_M_L_OPT_GROUP_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10158081),
@@ -35352,6 +38109,7 @@ pub const H_T_M_L_OPT_GROUP_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -35378,6 +38136,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223617),
@@ -35402,6 +38161,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223618),
@@ -35426,6 +38186,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223619),
@@ -35450,6 +38211,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223620),
@@ -35474,6 +38236,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223621),
@@ -35498,6 +38261,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223622),
@@ -35522,6 +38286,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10223623),
@@ -35546,6 +38311,7 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
@@ -35572,6 +38338,7 @@ pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10289153),
@@ -35596,6 +38363,7 @@ pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10289154),
@@ -35620,6 +38388,7 @@ pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10289155),
@@ -35644,6 +38413,7 @@ pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10289156),
@@ -35668,6 +38438,7 @@ pub const H_T_M_L_OPTIONS_COLLECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -35694,6 +38465,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354689),
@@ -35718,6 +38490,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354690),
@@ -35742,6 +38515,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354691),
@@ -35766,6 +38540,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354692),
@@ -35790,6 +38565,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354693),
@@ -35814,6 +38590,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354694),
@@ -35838,6 +38615,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354695),
@@ -35862,6 +38640,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354696),
@@ -35886,6 +38665,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354697),
@@ -35910,6 +38690,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354698),
@@ -35934,6 +38715,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354699),
@@ -35958,6 +38740,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10354700),
@@ -35982,6 +38765,7 @@ pub const H_T_M_L_OUTPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_PARAGRAPH_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -36008,6 +38792,7 @@ pub const H_T_M_L_PARAGRAPH_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10420225),
@@ -36032,6 +38817,7 @@ pub const H_T_M_L_PARAGRAPH_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_PICTURE_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -36059,6 +38845,7 @@ pub const H_T_M_L_PRE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10551297),
@@ -36083,6 +38870,7 @@ pub const H_T_M_L_PRE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_PROGRESS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -36109,6 +38897,7 @@ pub const H_T_M_L_PROGRESS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_QUOTE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -36135,6 +38924,7 @@ pub const H_T_M_L_QUOTE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10682369),
@@ -36159,6 +38949,7 @@ pub const H_T_M_L_QUOTE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -36185,6 +38976,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747905),
@@ -36209,6 +39001,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747906),
@@ -36233,6 +39026,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747907),
@@ -36257,6 +39051,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747908),
@@ -36281,6 +39076,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747909),
@@ -36305,6 +39101,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747910),
@@ -36329,6 +39126,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747911),
@@ -36353,6 +39151,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747912),
@@ -36377,6 +39176,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747913),
@@ -36401,6 +39201,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747914),
@@ -36425,6 +39226,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747915),
@@ -36449,6 +39251,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747916),
@@ -36473,6 +39276,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747917),
@@ -36497,6 +39301,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747918),
@@ -36521,6 +39326,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747919),
@@ -36545,6 +39351,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10747920),
@@ -36569,6 +39376,7 @@ pub const H_T_M_L_SCRIPT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -36595,6 +39403,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813441),
@@ -36619,6 +39428,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813442),
@@ -36643,6 +39453,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813443),
@@ -36667,6 +39478,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813444),
@@ -36691,6 +39503,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813445),
@@ -36715,6 +39528,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813446),
@@ -36739,6 +39553,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813447),
@@ -36763,6 +39578,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813448),
@@ -36787,6 +39603,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813449),
@@ -36811,6 +39628,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813450),
@@ -36835,6 +39653,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813451),
@@ -36859,6 +39678,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813452),
@@ -36883,6 +39703,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813453),
@@ -36907,6 +39728,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813454),
@@ -36931,6 +39753,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813455),
@@ -36955,6 +39778,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813456),
@@ -36979,6 +39803,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813457),
@@ -37003,6 +39828,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813458),
@@ -37027,6 +39853,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813459),
@@ -37051,6 +39878,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813460),
@@ -37075,6 +39903,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813461),
@@ -37099,6 +39928,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813462),
@@ -37123,6 +39953,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813463),
@@ -37147,6 +39978,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813464),
@@ -37171,6 +40003,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813465),
@@ -37195,6 +40028,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10813466),
@@ -37219,6 +40053,7 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SELECTED_CONTENT_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -37246,6 +40081,7 @@ pub const H_T_M_L_SLOT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10944513),
@@ -37270,6 +40106,7 @@ pub const H_T_M_L_SLOT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10944514),
@@ -37294,6 +40131,7 @@ pub const H_T_M_L_SLOT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(10944515),
@@ -37318,6 +40156,7 @@ pub const H_T_M_L_SLOT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -37344,6 +40183,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010049),
@@ -37368,6 +40208,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010050),
@@ -37392,6 +40233,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010051),
@@ -37416,6 +40258,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010052),
@@ -37440,6 +40283,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010053),
@@ -37464,6 +40308,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11010054),
@@ -37488,6 +40333,7 @@ pub const H_T_M_L_SOURCE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SPAN_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -37515,6 +40361,7 @@ pub const H_T_M_L_STYLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("value"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11141121),
@@ -37539,6 +40386,7 @@ pub const H_T_M_L_STYLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11141122),
@@ -37563,6 +40411,7 @@ pub const H_T_M_L_STYLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11141123),
@@ -37587,6 +40436,7 @@ pub const H_T_M_L_STYLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11141124),
@@ -37611,6 +40461,7 @@ pub const H_T_M_L_STYLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
@@ -37637,6 +40488,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206657),
@@ -37661,6 +40513,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206658),
@@ -37685,6 +40538,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206659),
@@ -37709,6 +40563,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206660),
@@ -37733,6 +40588,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206661),
@@ -37757,6 +40613,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206662),
@@ -37781,6 +40638,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206663),
@@ -37805,6 +40663,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206664),
@@ -37829,6 +40688,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206665),
@@ -37853,6 +40713,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11206666),
@@ -37877,6 +40738,7 @@ pub const H_T_M_L_SUBMIT_BUTTON_BEHAVIOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_CAPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -37903,6 +40765,7 @@ pub const H_T_M_L_TABLE_CAPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11272193),
@@ -37927,6 +40790,7 @@ pub const H_T_M_L_TABLE_CAPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -37953,6 +40817,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337729),
@@ -37977,6 +40842,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337730),
@@ -38001,6 +40867,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337731),
@@ -38025,6 +40892,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337732),
@@ -38049,6 +40917,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("headers"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337733),
@@ -38073,6 +40942,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337734),
@@ -38097,6 +40967,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("abbr"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337735),
@@ -38121,6 +40992,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337736),
@@ -38145,6 +41017,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("axis"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337737),
@@ -38169,6 +41042,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("height"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337738),
@@ -38193,6 +41067,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("width"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337739),
@@ -38217,6 +41092,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("char"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337740),
@@ -38241,6 +41117,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("charoff"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337741),
@@ -38265,6 +41142,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("nowrap"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337742),
@@ -38289,6 +41167,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("valign"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11337743),
@@ -38313,6 +41192,7 @@ pub const H_T_M_L_TABLE_CELL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("bgcolor"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -38339,6 +41219,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403265),
@@ -38363,6 +41244,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403266),
@@ -38387,6 +41269,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403267),
@@ -38411,6 +41294,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("char"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403268),
@@ -38435,6 +41319,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("charoff"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403269),
@@ -38459,6 +41344,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("valign"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11403270),
@@ -38483,6 +41369,7 @@ pub const H_T_M_L_TABLE_COL_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("width"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -38509,6 +41396,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468801),
@@ -38533,6 +41421,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468802),
@@ -38557,6 +41446,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468803),
@@ -38581,6 +41471,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468804),
@@ -38605,6 +41496,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468805),
@@ -38629,6 +41521,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468806),
@@ -38653,6 +41546,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468807),
@@ -38677,6 +41571,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468808),
@@ -38701,6 +41596,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468809),
@@ -38725,6 +41621,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468810),
@@ -38749,6 +41646,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468811),
@@ -38773,6 +41671,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468812),
@@ -38797,6 +41696,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468813),
@@ -38821,6 +41721,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468814),
@@ -38845,6 +41746,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468815),
@@ -38869,6 +41771,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468816),
@@ -38893,6 +41796,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("border"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468817),
@@ -38917,6 +41821,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("frame"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468818),
@@ -38941,6 +41846,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("rules"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468819),
@@ -38965,6 +41871,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("summary"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468820),
@@ -38989,6 +41896,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("width"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468821),
@@ -39013,6 +41921,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("bgcolor"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468822),
@@ -39037,6 +41946,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("cellpadding"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11468823),
@@ -39061,6 +41971,7 @@ pub const H_T_M_L_TABLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("cellspacing"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -39087,6 +41998,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534337),
@@ -39111,6 +42023,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534338),
@@ -39135,6 +42048,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534339),
@@ -39159,6 +42073,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534340),
@@ -39183,6 +42098,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534341),
@@ -39207,6 +42123,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534342),
@@ -39231,6 +42148,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534343),
@@ -39255,6 +42173,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("char"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534344),
@@ -39279,6 +42198,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("charoff"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534345),
@@ -39303,6 +42223,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("valign"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11534346),
@@ -39327,6 +42248,7 @@ pub const H_T_M_L_TABLE_ROW_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("bgcolor"),
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -39353,6 +42275,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599873),
@@ -39377,6 +42300,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599874),
@@ -39401,6 +42325,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599875),
@@ -39425,6 +42350,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599876),
@@ -39449,6 +42375,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("align"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599877),
@@ -39473,6 +42400,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("char"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599878),
@@ -39497,6 +42425,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("charoff"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11599879),
@@ -39521,6 +42450,7 @@ pub const H_T_M_L_TABLE_SECTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("valign"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TEMPLATE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -39547,6 +42477,7 @@ pub const H_T_M_L_TEMPLATE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("buffer"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11665409),
@@ -39571,6 +42502,7 @@ pub const H_T_M_L_TEMPLATE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("shadowrootadoptedstylesheets"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11665410),
@@ -39595,6 +42527,7 @@ pub const H_T_M_L_TEMPLATE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -39621,6 +42554,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730945),
@@ -39645,6 +42579,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730946),
@@ -39669,6 +42604,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730947),
@@ -39693,6 +42629,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730948),
@@ -39717,6 +42654,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730949),
@@ -39741,6 +42679,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730950),
@@ -39765,6 +42704,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730951),
@@ -39789,6 +42729,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730952),
@@ -39813,6 +42754,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730953),
@@ -39837,6 +42779,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730954),
@@ -39861,6 +42804,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730955),
@@ -39885,6 +42829,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730956),
@@ -39909,6 +42854,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730957),
@@ -39933,6 +42879,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730958),
@@ -39957,6 +42904,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730959),
@@ -39981,6 +42929,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730960),
@@ -40005,6 +42954,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730961),
@@ -40029,6 +42979,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730962),
@@ -40053,6 +43004,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730963),
@@ -40077,6 +43029,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730964),
@@ -40101,6 +43054,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730965),
@@ -40125,6 +43079,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730966),
@@ -40149,6 +43104,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730967),
@@ -40173,6 +43129,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730968),
@@ -40197,6 +43154,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730969),
@@ -40221,6 +43179,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730970),
@@ -40245,6 +43204,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730971),
@@ -40269,6 +43229,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730972),
@@ -40293,6 +43254,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730973),
@@ -40317,6 +43279,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730974),
@@ -40341,6 +43304,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11730975),
@@ -40365,6 +43329,7 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_TITLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -40392,6 +43357,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862017),
@@ -40416,6 +43382,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862018),
@@ -40440,6 +43407,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862019),
@@ -40464,6 +43432,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862020),
@@ -40488,6 +43457,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862021),
@@ -40512,6 +43482,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862022),
@@ -40536,6 +43507,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862023),
@@ -40560,6 +43532,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862024),
@@ -40584,6 +43557,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862025),
@@ -40608,6 +43582,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862026),
@@ -40632,6 +43607,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862027),
@@ -40656,6 +43632,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11862028),
@@ -40680,6 +43657,7 @@ pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_U_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -40706,6 +43684,7 @@ pub const H_T_M_L_U_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11927553),
@@ -40730,6 +43709,7 @@ pub const H_T_M_L_U_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("type"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(11927554),
@@ -40754,6 +43734,7 @@ pub const H_T_M_L_U_LIST_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("compact"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_UNKNOWN_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
@@ -40781,6 +43762,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058625),
@@ -40805,6 +43787,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058626),
@@ -40829,6 +43812,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058627),
@@ -40853,6 +43837,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058628),
@@ -40877,6 +43862,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058629),
@@ -40901,6 +43887,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058630),
@@ -40925,6 +43912,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058631),
@@ -40949,6 +43937,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058632),
@@ -40973,6 +43962,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058633),
@@ -40997,6 +43987,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058634),
@@ -41021,6 +44012,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058635),
@@ -41045,6 +44037,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058636),
@@ -41069,6 +44062,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12058637),
@@ -41093,6 +44087,7 @@ pub const H_T_M_L_USER_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -41119,6 +44114,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124161),
@@ -41143,6 +44139,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124162),
@@ -41167,6 +44164,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124163),
@@ -41191,6 +44189,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124164),
@@ -41215,6 +44214,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124165),
@@ -41239,6 +44239,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12124166),
@@ -41263,6 +44264,7 @@ pub const H_T_M_L_VIDEO_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const HASH_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -41289,6 +44291,7 @@ pub const HASH_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12189697),
@@ -41313,6 +44316,7 @@ pub const HASH_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12189698),
@@ -41337,6 +44341,7 @@ pub const HASH_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
@@ -41363,6 +44368,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255233),
@@ -41387,6 +44393,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255234),
@@ -41411,6 +44418,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255235),
@@ -41435,6 +44443,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255236),
@@ -41459,6 +44468,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255237),
@@ -41483,6 +44493,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255238),
@@ -41507,6 +44518,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12255239),
@@ -41531,6 +44543,7 @@ pub const HEADERS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
@@ -41557,6 +44570,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320769),
@@ -41581,6 +44595,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320770),
@@ -41605,6 +44620,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320771),
@@ -41629,6 +44645,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320772),
@@ -41653,6 +44670,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320773),
@@ -41677,6 +44695,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320774),
@@ -41701,6 +44720,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12320775),
@@ -41725,6 +44745,7 @@ pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
@@ -41751,6 +44772,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386305),
@@ -41775,6 +44797,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386306),
@@ -41799,6 +44822,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386307),
@@ -41823,6 +44847,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386308),
@@ -41847,6 +44872,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386309),
@@ -41871,6 +44897,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386310),
@@ -41895,6 +44922,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386311),
@@ -41919,6 +44947,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386312),
@@ -41943,6 +44972,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12386313),
@@ -41967,6 +44997,7 @@ pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_CURSOR_WITH_VALUE_MEMBERS: &[GeneratedMember] = &[
@@ -41993,6 +45024,7 @@ pub const I_D_B_CURSOR_WITH_VALUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
@@ -42019,6 +45051,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517377),
@@ -42043,6 +45076,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517378),
@@ -42067,6 +45101,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517379),
@@ -42091,6 +45126,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517380),
@@ -42115,6 +45151,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517381),
@@ -42139,6 +45176,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517382),
@@ -42163,6 +45201,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517383),
@@ -42187,6 +45226,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517384),
@@ -42211,6 +45251,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517385),
@@ -42235,6 +45276,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12517386),
@@ -42259,6 +45301,7 @@ pub const I_D_B_DATABASE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_FACTORY_MEMBERS: &[GeneratedMember] = &[
@@ -42285,6 +45328,7 @@ pub const I_D_B_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12582913),
@@ -42309,6 +45353,7 @@ pub const I_D_B_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12582914),
@@ -42333,6 +45378,7 @@ pub const I_D_B_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12582915),
@@ -42357,6 +45403,7 @@ pub const I_D_B_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
@@ -42383,6 +45430,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648449),
@@ -42407,6 +45455,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648450),
@@ -42431,6 +45480,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648451),
@@ -42455,6 +45505,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648452),
@@ -42479,6 +45530,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648453),
@@ -42503,6 +45555,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648454),
@@ -42527,6 +45580,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648455),
@@ -42551,6 +45605,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648456),
@@ -42575,6 +45630,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648457),
@@ -42599,6 +45655,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648458),
@@ -42623,6 +45680,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648459),
@@ -42647,6 +45705,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12648460),
@@ -42671,6 +45730,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
@@ -42697,6 +45757,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713985),
@@ -42721,6 +45782,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713986),
@@ -42745,6 +45807,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713987),
@@ -42769,6 +45832,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713988),
@@ -42793,6 +45857,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713989),
@@ -42817,6 +45882,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713990),
@@ -42841,6 +45907,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713991),
@@ -42865,6 +45932,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12713992),
@@ -42889,6 +45957,7 @@ pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
@@ -42915,6 +45984,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779521),
@@ -42939,6 +46009,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779522),
@@ -42963,6 +46034,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779523),
@@ -42987,6 +46059,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779524),
@@ -43011,6 +46084,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779525),
@@ -43035,6 +46109,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779526),
@@ -43059,6 +46134,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779527),
@@ -43083,6 +46159,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779528),
@@ -43107,6 +46184,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779529),
@@ -43131,6 +46209,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779530),
@@ -43155,6 +46234,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779531),
@@ -43179,6 +46259,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779532),
@@ -43203,6 +46284,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779533),
@@ -43227,6 +46309,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779534),
@@ -43251,6 +46334,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779535),
@@ -43275,6 +46359,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779536),
@@ -43299,6 +46384,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779537),
@@ -43323,6 +46409,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779538),
@@ -43347,6 +46434,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12779539),
@@ -43371,6 +46459,7 @@ pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_OPEN_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
@@ -43397,6 +46486,7 @@ pub const I_D_B_OPEN_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12845057),
@@ -43421,6 +46511,7 @@ pub const I_D_B_OPEN_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_RECORD_MEMBERS: &[GeneratedMember] = &[
@@ -43447,6 +46538,7 @@ pub const I_D_B_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12910593),
@@ -43471,6 +46563,7 @@ pub const I_D_B_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12910594),
@@ -43495,6 +46588,7 @@ pub const I_D_B_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
@@ -43521,6 +46615,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976129),
@@ -43545,6 +46640,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976130),
@@ -43569,6 +46665,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976131),
@@ -43593,6 +46690,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976132),
@@ -43617,6 +46715,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976133),
@@ -43641,6 +46740,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(12976134),
@@ -43665,6 +46765,7 @@ pub const I_D_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
@@ -43691,6 +46792,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041665),
@@ -43715,6 +46817,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041666),
@@ -43739,6 +46842,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041667),
@@ -43763,6 +46867,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041668),
@@ -43787,6 +46892,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041669),
@@ -43811,6 +46917,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041670),
@@ -43835,6 +46942,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041671),
@@ -43859,6 +46967,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041672),
@@ -43883,6 +46992,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041673),
@@ -43907,6 +47017,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13041674),
@@ -43931,6 +47042,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const I_D_B_VERSION_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -43957,6 +47069,7 @@ pub const I_D_B_VERSION_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13107201),
@@ -43981,6 +47094,7 @@ pub const I_D_B_VERSION_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13107202),
@@ -44005,6 +47119,7 @@ pub const I_D_B_VERSION_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const IMAGE_BITMAP_MEMBERS: &[GeneratedMember] = &[
@@ -44031,6 +47146,7 @@ pub const IMAGE_BITMAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13172737),
@@ -44055,6 +47171,7 @@ pub const IMAGE_BITMAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13172738),
@@ -44079,6 +47196,7 @@ pub const IMAGE_BITMAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
@@ -44105,6 +47223,7 @@ pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13238273),
@@ -44129,6 +47248,7 @@ pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13238274),
@@ -44153,6 +47273,7 @@ pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13238275),
@@ -44177,6 +47298,7 @@ pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13238276),
@@ -44201,6 +47323,7 @@ pub const IMAGE_DATA_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -44227,6 +47350,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13303809),
@@ -44251,6 +47375,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13303810),
@@ -44275,6 +47400,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13303811),
@@ -44299,6 +47425,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13303812),
@@ -44323,6 +47450,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13303813),
@@ -44347,6 +47475,7 @@ pub const INPUT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const INTEREST_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -44373,6 +47502,7 @@ pub const INTEREST_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13369345),
@@ -44397,6 +47527,7 @@ pub const INTEREST_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
@@ -44423,6 +47554,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434881),
@@ -44447,6 +47579,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434882),
@@ -44471,6 +47604,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434883),
@@ -44495,6 +47629,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434884),
@@ -44519,6 +47654,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434885),
@@ -44543,6 +47679,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434886),
@@ -44567,6 +47704,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434887),
@@ -44591,6 +47729,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434888),
@@ -44615,6 +47754,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434889),
@@ -44639,6 +47779,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13434890),
@@ -44663,6 +47804,7 @@ pub const INTERSECTION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
@@ -44689,6 +47831,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500417),
@@ -44713,6 +47856,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500418),
@@ -44737,6 +47881,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500419),
@@ -44761,6 +47906,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500420),
@@ -44785,6 +47931,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500421),
@@ -44809,6 +47956,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500422),
@@ -44833,6 +47981,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500423),
@@ -44857,6 +48006,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13500424),
@@ -44881,6 +48031,7 @@ pub const INTERSECTION_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -44907,6 +48058,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565953),
@@ -44931,6 +48083,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565954),
@@ -44955,6 +48108,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565955),
@@ -44979,6 +48133,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565956),
@@ -45003,6 +48158,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565957),
@@ -45027,6 +48183,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565958),
@@ -45051,6 +48208,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565959),
@@ -45075,6 +48233,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565960),
@@ -45099,6 +48258,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565961),
@@ -45123,6 +48283,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565962),
@@ -45147,6 +48308,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565963),
@@ -45171,6 +48333,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13565964),
@@ -45195,6 +48358,7 @@ pub const KEYBOARD_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const KEYFRAME_EFFECT_MEMBERS: &[GeneratedMember] = &[
@@ -45221,6 +48385,7 @@ pub const KEYFRAME_EFFECT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
@@ -45247,6 +48412,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697025),
@@ -45271,6 +48437,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697026),
@@ -45295,6 +48462,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697027),
@@ -45319,6 +48487,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697028),
@@ -45343,6 +48512,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697029),
@@ -45367,6 +48537,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697030),
@@ -45391,6 +48562,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697031),
@@ -45415,6 +48587,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697032),
@@ -45439,6 +48612,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697033),
@@ -45463,6 +48637,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697034),
@@ -45487,6 +48662,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697035),
@@ -45511,6 +48687,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697036),
@@ -45535,6 +48712,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13697037),
@@ -45559,6 +48737,7 @@ pub const LOCATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MANAGED_MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
@@ -45585,6 +48764,7 @@ pub const MANAGED_MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13762561),
@@ -45609,6 +48789,7 @@ pub const MANAGED_MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
@@ -45635,6 +48816,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13828097),
@@ -45659,6 +48841,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13828098),
@@ -45683,6 +48866,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13828099),
@@ -45707,6 +48891,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13828100),
@@ -45731,6 +48916,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13828101),
@@ -45755,6 +48941,7 @@ pub const MEDIA_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -45781,6 +48968,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: true,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13893633),
@@ -45805,6 +48993,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13893634),
@@ -45829,6 +49018,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13893635),
@@ -45853,6 +49043,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13893636),
@@ -45877,6 +49068,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13893637),
@@ -45901,6 +49093,7 @@ pub const MEDIA_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -45927,6 +49120,7 @@ pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13959169),
@@ -45951,6 +49145,7 @@ pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13959170),
@@ -45975,6 +49170,7 @@ pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13959171),
@@ -45999,6 +49195,7 @@ pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(13959172),
@@ -46023,6 +49220,7 @@ pub const MEDIA_QUERY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_QUERY_LIST_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -46049,6 +49247,7 @@ pub const MEDIA_QUERY_LIST_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14024705),
@@ -46073,6 +49272,7 @@ pub const MEDIA_QUERY_LIST_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14024706),
@@ -46097,6 +49297,7 @@ pub const MEDIA_QUERY_LIST_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
@@ -46123,6 +49324,7 @@ pub const MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14090241),
@@ -46147,6 +49349,7 @@ pub const MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14090242),
@@ -46171,6 +49374,7 @@ pub const MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14090243),
@@ -46195,6 +49399,7 @@ pub const MEDIA_SOURCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_SOURCE_HANDLE_MEMBERS: &[GeneratedMember] = &[];
@@ -46222,6 +49427,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221313),
@@ -46246,6 +49452,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221314),
@@ -46270,6 +49477,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221315),
@@ -46294,6 +49502,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221316),
@@ -46318,6 +49527,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221317),
@@ -46342,6 +49552,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221318),
@@ -46366,6 +49577,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221319),
@@ -46390,6 +49602,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221320),
@@ -46414,6 +49627,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221321),
@@ -46438,6 +49652,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221322),
@@ -46462,6 +49677,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221323),
@@ -46486,6 +49702,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221324),
@@ -46510,6 +49727,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14221325),
@@ -46534,6 +49752,7 @@ pub const MEDIA_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
@@ -46560,6 +49779,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286849),
@@ -46584,6 +49804,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286850),
@@ -46608,6 +49829,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286851),
@@ -46632,6 +49854,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286852),
@@ -46656,6 +49879,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286853),
@@ -46680,6 +49904,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286854),
@@ -46704,6 +49929,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286855),
@@ -46728,6 +49954,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286856),
@@ -46752,6 +49979,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286857),
@@ -46776,6 +50004,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286858),
@@ -46800,6 +50029,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286859),
@@ -46824,6 +50054,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286860),
@@ -46848,6 +50079,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286861),
@@ -46872,6 +50104,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14286862),
@@ -46896,6 +50129,7 @@ pub const MEDIA_STREAM_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MESSAGE_CHANNEL_MEMBERS: &[GeneratedMember] = &[
@@ -46922,6 +50156,7 @@ pub const MESSAGE_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14352385),
@@ -46946,6 +50181,7 @@ pub const MESSAGE_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14352386),
@@ -46970,6 +50206,7 @@ pub const MESSAGE_CHANNEL_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -46996,6 +50233,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417921),
@@ -47020,6 +50258,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417922),
@@ -47044,6 +50283,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417923),
@@ -47068,6 +50308,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417924),
@@ -47092,6 +50333,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417925),
@@ -47116,6 +50358,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417926),
@@ -47140,6 +50383,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14417927),
@@ -47164,6 +50408,7 @@ pub const MESSAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
@@ -47190,6 +50435,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14483457),
@@ -47214,6 +50460,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14483458),
@@ -47238,6 +50485,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14483459),
@@ -47262,6 +50510,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14483460),
@@ -47286,6 +50535,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14483461),
@@ -47310,6 +50560,7 @@ pub const MESSAGE_PORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -47336,6 +50587,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548993),
@@ -47360,6 +50612,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548994),
@@ -47384,6 +50637,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548995),
@@ -47408,6 +50662,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548996),
@@ -47432,6 +50687,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548997),
@@ -47456,6 +50712,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548998),
@@ -47480,6 +50737,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14548999),
@@ -47504,6 +50762,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14549000),
@@ -47528,6 +50787,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14549001),
@@ -47552,6 +50812,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14549002),
@@ -47576,6 +50837,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14549003),
@@ -47600,6 +50862,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14549004),
@@ -47624,6 +50887,7 @@ pub const MOUSE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
@@ -47650,6 +50914,7 @@ pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14614529),
@@ -47674,6 +50939,7 @@ pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14614530),
@@ -47698,6 +50964,7 @@ pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14614531),
@@ -47722,6 +50989,7 @@ pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
@@ -47748,6 +51016,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680065),
@@ -47772,6 +51041,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680066),
@@ -47796,6 +51066,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680067),
@@ -47820,6 +51091,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680068),
@@ -47844,6 +51116,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680069),
@@ -47868,6 +51141,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680070),
@@ -47892,6 +51166,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680071),
@@ -47916,6 +51191,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14680072),
@@ -47940,6 +51216,7 @@ pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
@@ -47966,6 +51243,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745601),
@@ -47990,6 +51268,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745602),
@@ -48014,6 +51293,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745603),
@@ -48038,6 +51318,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745604),
@@ -48062,6 +51343,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745605),
@@ -48086,6 +51368,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745606),
@@ -48110,6 +51393,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14745607),
@@ -48134,6 +51418,7 @@ pub const NAMED_NODE_MAP_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -48160,6 +51445,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811137),
@@ -48184,6 +51470,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811138),
@@ -48208,6 +51495,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811139),
@@ -48232,6 +51520,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811140),
@@ -48256,6 +51545,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811141),
@@ -48280,6 +51570,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811142),
@@ -48304,6 +51595,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811143),
@@ -48328,6 +51620,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811144),
@@ -48352,6 +51645,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811145),
@@ -48376,6 +51670,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811146),
@@ -48400,6 +51695,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811147),
@@ -48424,6 +51720,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811148),
@@ -48448,6 +51745,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14811149),
@@ -48472,6 +51770,7 @@ pub const NAVIGATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
@@ -48498,6 +51797,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876673),
@@ -48522,6 +51822,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876674),
@@ -48546,6 +51847,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876675),
@@ -48570,6 +51872,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876676),
@@ -48594,6 +51897,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876677),
@@ -48618,6 +51922,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876678),
@@ -48642,6 +51947,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876679),
@@ -48666,6 +51972,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876680),
@@ -48690,6 +51997,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876681),
@@ -48714,6 +52022,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876682),
@@ -48738,6 +52047,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876683),
@@ -48762,6 +52072,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876684),
@@ -48786,6 +52097,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876685),
@@ -48810,6 +52122,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876686),
@@ -48834,6 +52147,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14876687),
@@ -48858,6 +52172,7 @@ pub const NAVIGATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_ACTIVATION_MEMBERS: &[GeneratedMember] = &[
@@ -48884,6 +52199,7 @@ pub const NAVIGATION_ACTIVATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14942209),
@@ -48908,6 +52224,7 @@ pub const NAVIGATION_ACTIVATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(14942210),
@@ -48932,6 +52249,7 @@ pub const NAVIGATION_ACTIVATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_CURRENT_ENTRY_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -48958,6 +52276,7 @@ pub const NAVIGATION_CURRENT_ENTRY_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15007745),
@@ -48982,6 +52301,7 @@ pub const NAVIGATION_CURRENT_ENTRY_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15007746),
@@ -49006,6 +52326,7 @@ pub const NAVIGATION_CURRENT_ENTRY_CHANGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
@@ -49032,6 +52353,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15073281),
@@ -49056,6 +52378,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15073282),
@@ -49080,6 +52403,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15073283),
@@ -49104,6 +52428,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15073284),
@@ -49128,6 +52453,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15073285),
@@ -49152,6 +52478,7 @@ pub const NAVIGATION_DESTINATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
@@ -49178,6 +52505,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138817),
@@ -49202,6 +52530,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138818),
@@ -49226,6 +52555,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138819),
@@ -49250,6 +52580,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138820),
@@ -49274,6 +52605,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138821),
@@ -49298,6 +52630,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15138822),
@@ -49322,6 +52655,7 @@ pub const NAVIGATION_HISTORY_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_PRECOMMIT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
@@ -49348,6 +52682,7 @@ pub const NAVIGATION_PRECOMMIT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15204353),
@@ -49372,6 +52707,7 @@ pub const NAVIGATION_PRECOMMIT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_PRELOAD_MANAGER_MEMBERS: &[GeneratedMember] = &[
@@ -49398,6 +52734,7 @@ pub const NAVIGATION_PRELOAD_MANAGER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15269889),
@@ -49422,6 +52759,7 @@ pub const NAVIGATION_PRELOAD_MANAGER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15269890),
@@ -49446,6 +52784,7 @@ pub const NAVIGATION_PRELOAD_MANAGER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15269891),
@@ -49470,6 +52809,7 @@ pub const NAVIGATION_PRELOAD_MANAGER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
@@ -49496,6 +52836,7 @@ pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15335425),
@@ -49520,6 +52861,7 @@ pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15335426),
@@ -49544,6 +52886,7 @@ pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15335427),
@@ -49568,6 +52911,7 @@ pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15335428),
@@ -49592,6 +52936,7 @@ pub const NAVIGATION_TRANSITION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NAVIGATOR_MEMBERS: &[GeneratedMember] = &[
@@ -49618,6 +52963,7 @@ pub const NAVIGATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NODE_MEMBERS: &[GeneratedMember] = &[
@@ -49644,6 +52990,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466497),
@@ -49668,6 +53015,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466498),
@@ -49692,6 +53040,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466499),
@@ -49716,6 +53065,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466500),
@@ -49740,6 +53090,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466501),
@@ -49764,6 +53115,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466502),
@@ -49788,6 +53140,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466503),
@@ -49812,6 +53165,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466504),
@@ -49836,6 +53190,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466505),
@@ -49860,6 +53215,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466506),
@@ -49884,6 +53240,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466507),
@@ -49908,6 +53265,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466508),
@@ -49932,6 +53290,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466509),
@@ -49956,6 +53315,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466510),
@@ -49980,6 +53340,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466511),
@@ -50004,6 +53365,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466512),
@@ -50028,6 +53390,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466513),
@@ -50052,6 +53415,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466514),
@@ -50076,6 +53440,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466515),
@@ -50100,6 +53465,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466516),
@@ -50124,6 +53490,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466517),
@@ -50148,6 +53515,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466518),
@@ -50172,6 +53540,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466519),
@@ -50196,6 +53565,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466520),
@@ -50220,6 +53590,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466521),
@@ -50244,6 +53615,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466522),
@@ -50268,6 +53640,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466523),
@@ -50292,6 +53665,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466524),
@@ -50316,6 +53690,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466525),
@@ -50340,6 +53715,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466526),
@@ -50364,6 +53740,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466527),
@@ -50388,6 +53765,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466528),
@@ -50412,6 +53790,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466529),
@@ -50436,6 +53815,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466530),
@@ -50460,6 +53840,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466531),
@@ -50484,6 +53865,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466532),
@@ -50508,6 +53890,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466533),
@@ -50532,6 +53915,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466534),
@@ -50556,6 +53940,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466535),
@@ -50580,6 +53965,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466536),
@@ -50604,6 +53990,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466537),
@@ -50628,6 +54015,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466538),
@@ -50652,6 +54040,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466539),
@@ -50676,6 +54065,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466540),
@@ -50700,6 +54090,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466541),
@@ -50724,6 +54115,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15466542),
@@ -50748,6 +54140,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
@@ -50774,6 +54167,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532033),
@@ -50798,6 +54192,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532034),
@@ -50822,6 +54217,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532035),
@@ -50846,6 +54242,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532036),
@@ -50870,6 +54267,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532037),
@@ -50894,6 +54292,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532038),
@@ -50918,6 +54317,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532039),
@@ -50942,6 +54342,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532040),
@@ -50966,6 +54367,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532041),
@@ -50990,6 +54392,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532042),
@@ -51014,6 +54417,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532043),
@@ -51038,6 +54442,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532044),
@@ -51062,6 +54467,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532045),
@@ -51086,6 +54492,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532046),
@@ -51110,6 +54517,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532047),
@@ -51134,6 +54542,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15532048),
@@ -51158,6 +54567,7 @@ pub const NODE_FILTER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
@@ -51184,6 +54594,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597569),
@@ -51208,6 +54619,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597570),
@@ -51232,6 +54644,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597571),
@@ -51256,6 +54669,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597572),
@@ -51280,6 +54694,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597573),
@@ -51304,6 +54719,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597574),
@@ -51328,6 +54744,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15597575),
@@ -51352,6 +54769,7 @@ pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NODE_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -51378,6 +54796,7 @@ pub const NODE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15663105),
@@ -51402,6 +54821,7 @@ pub const NODE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15663106),
@@ -51426,6 +54846,7 @@ pub const NODE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
@@ -51452,6 +54873,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728641),
@@ -51476,6 +54898,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728642),
@@ -51500,6 +54923,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728643),
@@ -51524,6 +54948,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728644),
@@ -51548,6 +54973,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728645),
@@ -51572,6 +54998,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728646),
@@ -51596,6 +55023,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728647),
@@ -51620,6 +55048,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728648),
@@ -51644,6 +55073,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728649),
@@ -51668,6 +55098,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728650),
@@ -51692,6 +55123,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728651),
@@ -51716,6 +55148,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728652),
@@ -51740,6 +55173,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728653),
@@ -51764,6 +55198,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728654),
@@ -51788,6 +55223,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728655),
@@ -51812,6 +55248,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728656),
@@ -51836,6 +55273,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728657),
@@ -51860,6 +55298,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728658),
@@ -51884,6 +55323,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728659),
@@ -51908,6 +55348,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728660),
@@ -51932,6 +55373,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15728661),
@@ -51956,6 +55398,7 @@ pub const NOTIFICATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const OFFLINE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
@@ -51982,6 +55425,7 @@ pub const OFFLINE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15794177),
@@ -52006,6 +55450,7 @@ pub const OFFLINE_AUDIO_CONTEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
@@ -52032,6 +55477,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15859713),
@@ -52056,6 +55502,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15859714),
@@ -52080,6 +55527,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15859715),
@@ -52104,6 +55552,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15859716),
@@ -52128,6 +55577,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15859717),
@@ -52152,6 +55602,7 @@ pub const OFFSCREEN_CANVAS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
@@ -52178,6 +55629,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925249),
@@ -52202,6 +55654,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925250),
@@ -52226,6 +55679,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925251),
@@ -52250,6 +55704,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925252),
@@ -52274,6 +55729,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925253),
@@ -52298,6 +55754,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925254),
@@ -52322,6 +55779,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925255),
@@ -52346,6 +55804,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925256),
@@ -52370,6 +55829,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925257),
@@ -52394,6 +55854,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925258),
@@ -52418,6 +55879,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925259),
@@ -52442,6 +55904,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925260),
@@ -52466,6 +55929,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925261),
@@ -52490,6 +55954,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925262),
@@ -52514,6 +55979,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925263),
@@ -52538,6 +56004,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925264),
@@ -52562,6 +56029,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925265),
@@ -52586,6 +56054,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925266),
@@ -52610,6 +56079,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925267),
@@ -52634,6 +56104,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925268),
@@ -52658,6 +56129,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925269),
@@ -52682,6 +56154,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925270),
@@ -52706,6 +56179,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925271),
@@ -52730,6 +56204,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925272),
@@ -52754,6 +56229,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925273),
@@ -52778,6 +56254,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925274),
@@ -52802,6 +56279,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925275),
@@ -52826,6 +56304,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925276),
@@ -52850,6 +56329,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925277),
@@ -52874,6 +56354,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925278),
@@ -52898,6 +56379,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925279),
@@ -52922,6 +56404,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925280),
@@ -52946,6 +56429,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925281),
@@ -52970,6 +56454,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925282),
@@ -52994,6 +56479,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925283),
@@ -53018,6 +56504,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925284),
@@ -53042,6 +56529,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925285),
@@ -53066,6 +56554,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925286),
@@ -53090,6 +56579,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925287),
@@ -53114,6 +56604,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925288),
@@ -53138,6 +56629,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925289),
@@ -53162,6 +56654,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925290),
@@ -53186,6 +56679,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925291),
@@ -53210,6 +56704,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925292),
@@ -53234,6 +56729,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925293),
@@ -53258,6 +56754,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925294),
@@ -53282,6 +56779,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925295),
@@ -53306,6 +56804,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925296),
@@ -53330,6 +56829,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925297),
@@ -53354,6 +56854,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925298),
@@ -53378,6 +56879,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925299),
@@ -53402,6 +56904,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925300),
@@ -53426,6 +56929,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925301),
@@ -53450,6 +56954,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925302),
@@ -53474,6 +56979,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(15925303),
@@ -53498,6 +57004,7 @@ pub const OFFSCREEN_CANVAS_RENDERING_CONTEXT2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const OPAQUE_RANGE_MEMBERS: &[GeneratedMember] = &[
@@ -53524,6 +57031,7 @@ pub const OPAQUE_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const OVERCONSTRAINED_ERROR_MEMBERS: &[GeneratedMember] = &[
@@ -53550,6 +57058,7 @@ pub const OVERCONSTRAINED_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16056321),
@@ -53574,6 +57083,7 @@ pub const OVERCONSTRAINED_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PAGE_REVEAL_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -53600,6 +57110,7 @@ pub const PAGE_REVEAL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16121857),
@@ -53624,6 +57135,7 @@ pub const PAGE_REVEAL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PAGE_SWAP_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -53650,6 +57162,7 @@ pub const PAGE_SWAP_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16187393),
@@ -53674,6 +57187,7 @@ pub const PAGE_SWAP_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16187394),
@@ -53698,6 +57212,7 @@ pub const PAGE_SWAP_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PAGE_TRANSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -53724,6 +57239,7 @@ pub const PAGE_TRANSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16252929),
@@ -53748,6 +57264,7 @@ pub const PAGE_TRANSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
@@ -53774,6 +57291,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318465),
@@ -53798,6 +57316,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318466),
@@ -53822,6 +57341,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318467),
@@ -53846,6 +57366,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318468),
@@ -53870,6 +57391,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318469),
@@ -53894,6 +57416,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318470),
@@ -53918,6 +57441,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318471),
@@ -53942,6 +57466,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318472),
@@ -53966,6 +57491,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318473),
@@ -53990,6 +57516,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318474),
@@ -54014,6 +57541,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16318475),
@@ -54038,6 +57566,7 @@ pub const PATH2_D_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
@@ -54064,6 +57593,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384001),
@@ -54088,6 +57618,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384002),
@@ -54112,6 +57643,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384003),
@@ -54136,6 +57668,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384004),
@@ -54160,6 +57693,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384005),
@@ -54184,6 +57718,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384006),
@@ -54208,6 +57743,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16384007),
@@ -54232,6 +57768,7 @@ pub const PERFORMANCE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
@@ -54258,6 +57795,7 @@ pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16449537),
@@ -54282,6 +57820,7 @@ pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16449538),
@@ -54306,6 +57845,7 @@ pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16449539),
@@ -54330,6 +57870,7 @@ pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16449540),
@@ -54354,6 +57895,7 @@ pub const PERFORMANCE_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
@@ -54380,6 +57922,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515073),
@@ -54404,6 +57947,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515074),
@@ -54428,6 +57972,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515075),
@@ -54452,6 +57997,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515076),
@@ -54476,6 +58022,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515077),
@@ -54500,6 +58047,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515078),
@@ -54524,6 +58072,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515079),
@@ -54548,6 +58097,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515080),
@@ -54572,6 +58122,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515081),
@@ -54596,6 +58147,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515082),
@@ -54620,6 +58172,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16515083),
@@ -54644,6 +58197,7 @@ pub const PERFORMANCE_NAVIGATION_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
@@ -54670,6 +58224,7 @@ pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16580609),
@@ -54694,6 +58249,7 @@ pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16580610),
@@ -54718,6 +58274,7 @@ pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16580611),
@@ -54742,6 +58299,7 @@ pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16580612),
@@ -54766,6 +58324,7 @@ pub const PERFORMANCE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_OBSERVER_ENTRY_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -54792,6 +58351,7 @@ pub const PERFORMANCE_OBSERVER_ENTRY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16646145),
@@ -54816,6 +58376,7 @@ pub const PERFORMANCE_OBSERVER_ENTRY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16646146),
@@ -54840,6 +58401,7 @@ pub const PERFORMANCE_OBSERVER_ENTRY_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_PAINT_TIMING_MEMBERS: &[GeneratedMember] = &[];
@@ -54867,6 +58429,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777217),
@@ -54891,6 +58454,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777218),
@@ -54915,6 +58479,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777219),
@@ -54939,6 +58504,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777220),
@@ -54963,6 +58529,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777221),
@@ -54987,6 +58554,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777222),
@@ -55011,6 +58579,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777223),
@@ -55035,6 +58604,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777224),
@@ -55059,6 +58629,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777225),
@@ -55083,6 +58654,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777226),
@@ -55107,6 +58679,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777227),
@@ -55131,6 +58704,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777228),
@@ -55155,6 +58729,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777229),
@@ -55179,6 +58754,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777230),
@@ -55203,6 +58779,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777231),
@@ -55227,6 +58804,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777232),
@@ -55251,6 +58829,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777233),
@@ -55275,6 +58854,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777234),
@@ -55299,6 +58879,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777235),
@@ -55323,6 +58904,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777236),
@@ -55347,6 +58929,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16777237),
@@ -55371,6 +58954,7 @@ pub const PERFORMANCE_RESOURCE_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERFORMANCE_SERVER_TIMING_MEMBERS: &[GeneratedMember] = &[
@@ -55397,6 +58981,7 @@ pub const PERFORMANCE_SERVER_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16842753),
@@ -55421,6 +59006,7 @@ pub const PERFORMANCE_SERVER_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16842754),
@@ -55445,6 +59031,7 @@ pub const PERFORMANCE_SERVER_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16842755),
@@ -55469,6 +59056,7 @@ pub const PERFORMANCE_SERVER_TIMING_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PERMISSIONS_POLICY_MEMBERS: &[GeneratedMember] = &[
@@ -55495,6 +59083,7 @@ pub const PERMISSIONS_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16908289),
@@ -55519,6 +59108,7 @@ pub const PERMISSIONS_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16908290),
@@ -55543,6 +59133,7 @@ pub const PERMISSIONS_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16908291),
@@ -55567,6 +59158,7 @@ pub const PERMISSIONS_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PICTURE_IN_PICTURE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -55593,6 +59185,7 @@ pub const PICTURE_IN_PICTURE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(16973825),
@@ -55617,6 +59210,7 @@ pub const PICTURE_IN_PICTURE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PICTURE_IN_PICTURE_WINDOW_MEMBERS: &[GeneratedMember] = &[
@@ -55643,6 +59237,7 @@ pub const PICTURE_IN_PICTURE_WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17039361),
@@ -55667,6 +59262,7 @@ pub const PICTURE_IN_PICTURE_WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17039362),
@@ -55691,6 +59287,7 @@ pub const PICTURE_IN_PICTURE_WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -55717,6 +59314,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104897),
@@ -55741,6 +59339,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104898),
@@ -55765,6 +59364,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104899),
@@ -55789,6 +59389,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104900),
@@ -55813,6 +59414,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104901),
@@ -55837,6 +59439,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104902),
@@ -55861,6 +59464,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104903),
@@ -55885,6 +59489,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104904),
@@ -55909,6 +59514,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104905),
@@ -55933,6 +59539,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17104906),
@@ -55957,6 +59564,7 @@ pub const POINTER_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const POP_STATE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -55983,6 +59591,7 @@ pub const POP_STATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17170433),
@@ -56007,6 +59616,7 @@ pub const POP_STATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17170434),
@@ -56031,6 +59641,7 @@ pub const POP_STATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
@@ -56057,6 +59668,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235969),
@@ -56081,6 +59693,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235970),
@@ -56105,6 +59718,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235971),
@@ -56129,6 +59743,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235972),
@@ -56153,6 +59768,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235973),
@@ -56177,6 +59793,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235974),
@@ -56201,6 +59818,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235975),
@@ -56225,6 +59843,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17235976),
@@ -56249,6 +59868,7 @@ pub const PROCESSING_INSTRUCTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const PROGRESS_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -56275,6 +59895,7 @@ pub const PROGRESS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17301505),
@@ -56299,6 +59920,7 @@ pub const PROGRESS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17301506),
@@ -56323,6 +59945,7 @@ pub const PROGRESS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17301507),
@@ -56347,6 +59970,7 @@ pub const PROGRESS_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const QUOTA_EXCEEDED_ERROR_MEMBERS: &[GeneratedMember] = &[
@@ -56373,6 +59997,7 @@ pub const QUOTA_EXCEEDED_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17367041),
@@ -56397,6 +60022,7 @@ pub const QUOTA_EXCEEDED_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17367042),
@@ -56421,6 +60047,7 @@ pub const QUOTA_EXCEEDED_ERROR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RADIO_NODE_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -56447,6 +60074,7 @@ pub const RADIO_NODE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RANGE_MEMBERS: &[GeneratedMember] = &[
@@ -56473,6 +60101,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498113),
@@ -56497,6 +60126,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498114),
@@ -56521,6 +60151,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498115),
@@ -56545,6 +60176,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498116),
@@ -56569,6 +60201,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498117),
@@ -56593,6 +60226,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498118),
@@ -56617,6 +60251,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498119),
@@ -56641,6 +60276,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498120),
@@ -56665,6 +60301,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498121),
@@ -56689,6 +60326,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498122),
@@ -56713,6 +60351,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498123),
@@ -56737,6 +60376,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498124),
@@ -56761,6 +60401,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498125),
@@ -56785,6 +60426,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498126),
@@ -56809,6 +60451,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498127),
@@ -56833,6 +60476,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498128),
@@ -56857,6 +60501,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498129),
@@ -56881,6 +60526,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498130),
@@ -56905,6 +60551,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498131),
@@ -56929,6 +60576,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498132),
@@ -56953,6 +60601,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498133),
@@ -56977,6 +60626,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498134),
@@ -57001,6 +60651,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498135),
@@ -57025,6 +60676,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498136),
@@ -57049,6 +60701,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498137),
@@ -57073,6 +60726,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498138),
@@ -57097,6 +60751,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498139),
@@ -57121,6 +60776,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498140),
@@ -57145,6 +60801,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17498141),
@@ -57169,6 +60826,7 @@ pub const RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
@@ -57195,6 +60853,7 @@ pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17563649),
@@ -57219,6 +60878,7 @@ pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17563650),
@@ -57243,6 +60903,7 @@ pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17563651),
@@ -57267,6 +60928,7 @@ pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17563652),
@@ -57291,6 +60953,7 @@ pub const READABLE_BYTE_STREAM_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
@@ -57317,6 +60980,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629185),
@@ -57341,6 +61005,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629186),
@@ -57365,6 +61030,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629187),
@@ -57389,6 +61055,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629188),
@@ -57413,6 +61080,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629189),
@@ -57437,6 +61105,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17629190),
@@ -57461,6 +61130,7 @@ pub const READABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
@@ -57487,6 +61157,7 @@ pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17694721),
@@ -57511,6 +61182,7 @@ pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17694722),
@@ -57535,6 +61207,7 @@ pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17694723),
@@ -57559,6 +61232,7 @@ pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17694724),
@@ -57583,6 +61257,7 @@ pub const READABLE_STREAM_B_Y_O_B_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_STREAM_B_Y_O_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
@@ -57609,6 +61284,7 @@ pub const READABLE_STREAM_B_Y_O_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17760257),
@@ -57633,6 +61309,7 @@ pub const READABLE_STREAM_B_Y_O_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17760258),
@@ -57657,6 +61334,7 @@ pub const READABLE_STREAM_B_Y_O_B_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
@@ -57683,6 +61361,7 @@ pub const READABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17825793),
@@ -57707,6 +61386,7 @@ pub const READABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17825794),
@@ -57731,6 +61411,7 @@ pub const READABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17825795),
@@ -57755,6 +61436,7 @@ pub const READABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
@@ -57781,6 +61463,7 @@ pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17891329),
@@ -57805,6 +61488,7 @@ pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17891330),
@@ -57829,6 +61513,7 @@ pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17891331),
@@ -57853,6 +61538,7 @@ pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17891332),
@@ -57877,6 +61563,7 @@ pub const READABLE_STREAM_DEFAULT_READER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
@@ -57903,6 +61590,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956865),
@@ -57927,6 +61615,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956866),
@@ -57951,6 +61640,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956867),
@@ -57975,6 +61665,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956868),
@@ -57999,6 +61690,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956869),
@@ -58023,6 +61715,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956870),
@@ -58047,6 +61740,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956871),
@@ -58071,6 +61765,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956872),
@@ -58095,6 +61790,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956873),
@@ -58119,6 +61815,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956874),
@@ -58143,6 +61840,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956875),
@@ -58167,6 +61865,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956876),
@@ -58191,6 +61890,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956877),
@@ -58215,6 +61915,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956878),
@@ -58239,6 +61940,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956879),
@@ -58263,6 +61965,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956880),
@@ -58287,6 +61990,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956881),
@@ -58311,6 +62015,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956882),
@@ -58335,6 +62040,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956883),
@@ -58359,6 +62065,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956884),
@@ -58383,6 +62090,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956885),
@@ -58407,6 +62115,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956886),
@@ -58431,6 +62140,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956887),
@@ -58455,6 +62165,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(17956888),
@@ -58479,6 +62190,7 @@ pub const REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RESIZE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
@@ -58505,6 +62217,7 @@ pub const RESIZE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18022401),
@@ -58529,6 +62242,7 @@ pub const RESIZE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18022402),
@@ -58553,6 +62267,7 @@ pub const RESIZE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18022403),
@@ -58577,6 +62292,7 @@ pub const RESIZE_OBSERVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
@@ -58603,6 +62319,7 @@ pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18087937),
@@ -58627,6 +62344,7 @@ pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18087938),
@@ -58651,6 +62369,7 @@ pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18087939),
@@ -58675,6 +62394,7 @@ pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18087940),
@@ -58699,6 +62419,7 @@ pub const RESIZE_OBSERVER_ENTRY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RESIZE_OBSERVER_SIZE_MEMBERS: &[GeneratedMember] = &[
@@ -58725,6 +62446,7 @@ pub const RESIZE_OBSERVER_SIZE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18153473),
@@ -58749,6 +62471,7 @@ pub const RESIZE_OBSERVER_SIZE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
@@ -58775,6 +62498,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219009),
@@ -58799,6 +62523,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219010),
@@ -58823,6 +62548,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219011),
@@ -58847,6 +62573,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219012),
@@ -58871,6 +62598,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219013),
@@ -58895,6 +62623,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219014),
@@ -58919,6 +62648,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219015),
@@ -58943,6 +62673,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219016),
@@ -58967,6 +62698,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219017),
@@ -58991,6 +62723,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219018),
@@ -59015,6 +62748,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219019),
@@ -59039,6 +62773,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219020),
@@ -59063,6 +62798,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219021),
@@ -59087,6 +62823,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219022),
@@ -59111,6 +62848,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219023),
@@ -59135,6 +62873,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18219024),
@@ -59159,6 +62898,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const S_V_G_A_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -59185,6 +62925,7 @@ pub const S_V_G_A_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: Some("interestfor"),
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -59211,6 +62952,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350081),
@@ -59235,6 +62977,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350082),
@@ -59259,6 +63002,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350083),
@@ -59283,6 +63027,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350084),
@@ -59307,6 +63052,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350085),
@@ -59331,6 +63077,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350086),
@@ -59355,6 +63102,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350087),
@@ -59379,6 +63127,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350088),
@@ -59403,6 +63152,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350089),
@@ -59427,6 +63177,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350090),
@@ -59451,6 +63202,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350091),
@@ -59475,6 +63227,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350092),
@@ -59499,6 +63252,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18350093),
@@ -59523,6 +63277,7 @@ pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("cssText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
@@ -59549,6 +63304,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415617),
@@ -59573,6 +63329,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415618),
@@ -59597,6 +63354,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415619),
@@ -59621,6 +63379,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415620),
@@ -59645,6 +63404,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415621),
@@ -59669,6 +63429,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415622),
@@ -59693,6 +63454,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415623),
@@ -59717,6 +63479,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415624),
@@ -59741,6 +63504,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415625),
@@ -59765,6 +63529,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415626),
@@ -59789,6 +63554,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18415627),
@@ -59813,6 +63579,7 @@ pub const SANITIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -59839,6 +63606,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481153),
@@ -59863,6 +63631,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481154),
@@ -59887,6 +63656,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481155),
@@ -59911,6 +63681,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481156),
@@ -59935,6 +63706,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481157),
@@ -59959,6 +63731,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481158),
@@ -59983,6 +63756,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481159),
@@ -60007,6 +63781,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481160),
@@ -60031,6 +63806,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481161),
@@ -60055,6 +63831,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481162),
@@ -60079,6 +63856,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481163),
@@ -60103,6 +63881,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18481164),
@@ -60127,6 +63906,7 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
@@ -60153,6 +63933,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546689),
@@ -60177,6 +63958,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546690),
@@ -60201,6 +63983,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546691),
@@ -60225,6 +64008,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546692),
@@ -60249,6 +64033,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546693),
@@ -60273,6 +64058,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546694),
@@ -60297,6 +64083,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546695),
@@ -60321,6 +64108,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546696),
@@ -60345,6 +64133,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546697),
@@ -60369,6 +64158,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546698),
@@ -60393,6 +64183,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546699),
@@ -60417,6 +64208,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546700),
@@ -60441,6 +64233,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546701),
@@ -60465,6 +64258,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546702),
@@ -60489,6 +64283,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546703),
@@ -60513,6 +64308,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546704),
@@ -60537,6 +64333,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546705),
@@ -60561,6 +64358,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546706),
@@ -60585,6 +64383,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546707),
@@ -60609,6 +64408,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546708),
@@ -60633,6 +64433,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546709),
@@ -60657,6 +64458,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546710),
@@ -60681,6 +64483,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546711),
@@ -60705,6 +64508,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18546712),
@@ -60729,6 +64533,7 @@ pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SERVICE_WORKER_MEMBERS: &[GeneratedMember] = &[
@@ -60755,6 +64560,7 @@ pub const SERVICE_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18612225),
@@ -60779,6 +64585,7 @@ pub const SERVICE_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18612226),
@@ -60803,6 +64610,7 @@ pub const SERVICE_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18612227),
@@ -60827,6 +64635,7 @@ pub const SERVICE_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
@@ -60853,6 +64662,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677761),
@@ -60877,6 +64687,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677762),
@@ -60901,6 +64712,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677763),
@@ -60925,6 +64737,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677764),
@@ -60949,6 +64762,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677765),
@@ -60973,6 +64787,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677766),
@@ -60997,6 +64812,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677767),
@@ -61021,6 +64837,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18677768),
@@ -61045,6 +64862,7 @@ pub const SERVICE_WORKER_CONTAINER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SERVICE_WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[];
@@ -61072,6 +64890,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808833),
@@ -61096,6 +64915,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808834),
@@ -61120,6 +64940,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808835),
@@ -61144,6 +64965,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808836),
@@ -61168,6 +64990,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808837),
@@ -61192,6 +65015,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808838),
@@ -61216,6 +65040,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808839),
@@ -61240,6 +65065,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18808840),
@@ -61264,6 +65090,7 @@ pub const SERVICE_WORKER_REGISTRATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
@@ -61290,6 +65117,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874369),
@@ -61314,6 +65142,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874370),
@@ -61338,6 +65167,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874371),
@@ -61362,6 +65192,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874372),
@@ -61386,6 +65217,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874373),
@@ -61410,6 +65242,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874374),
@@ -61434,6 +65267,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874375),
@@ -61458,6 +65292,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874376),
@@ -61482,6 +65317,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874377),
@@ -61506,6 +65342,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874378),
@@ -61530,6 +65367,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874379),
@@ -61554,6 +65392,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874380),
@@ -61578,6 +65417,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874381),
@@ -61602,6 +65442,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874382),
@@ -61626,6 +65467,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874383),
@@ -61650,6 +65492,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874384),
@@ -61674,6 +65517,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874385),
@@ -61698,6 +65542,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874386),
@@ -61722,6 +65567,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874387),
@@ -61746,6 +65592,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874388),
@@ -61770,6 +65617,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874389),
@@ -61794,6 +65642,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874390),
@@ -61818,6 +65667,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874391),
@@ -61842,6 +65692,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874392),
@@ -61866,6 +65717,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18874393),
@@ -61890,6 +65742,7 @@ pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SHARED_WORKER_MEMBERS: &[GeneratedMember] = &[
@@ -61916,6 +65769,7 @@ pub const SHARED_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18939905),
@@ -61940,6 +65794,7 @@ pub const SHARED_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(18939906),
@@ -61964,6 +65819,7 @@ pub const SHARED_WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SHARED_WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[];
@@ -61991,6 +65847,7 @@ pub const STATIC_RANGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
@@ -62017,6 +65874,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19136513),
@@ -62041,6 +65899,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19136514),
@@ -62065,6 +65924,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19136515),
@@ -62089,6 +65949,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19136516),
@@ -62113,6 +65974,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19136517),
@@ -62137,6 +65999,7 @@ pub const STORAGE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -62163,6 +66026,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202049),
@@ -62187,6 +66051,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202050),
@@ -62211,6 +66076,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202051),
@@ -62235,6 +66101,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202052),
@@ -62259,6 +66126,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202053),
@@ -62283,6 +66151,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19202054),
@@ -62307,6 +66176,7 @@ pub const STORAGE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
@@ -62333,6 +66203,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267585),
@@ -62357,6 +66228,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267586),
@@ -62381,6 +66253,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267587),
@@ -62405,6 +66278,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267588),
@@ -62429,6 +66303,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267589),
@@ -62453,6 +66328,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19267590),
@@ -62477,6 +66353,7 @@ pub const STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("mediaText"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const STYLE_SHEET_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -62503,6 +66380,7 @@ pub const STYLE_SHEET_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19333121),
@@ -62527,6 +66405,7 @@ pub const STYLE_SHEET_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SUBMIT_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -62553,6 +66432,7 @@ pub const SUBMIT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19398657),
@@ -62577,6 +66457,7 @@ pub const SUBMIT_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
@@ -62603,6 +66484,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464193),
@@ -62627,6 +66509,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464194),
@@ -62651,6 +66534,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464195),
@@ -62675,6 +66559,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464196),
@@ -62699,6 +66584,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464197),
@@ -62723,6 +66609,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464198),
@@ -62747,6 +66634,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464199),
@@ -62771,6 +66659,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464200),
@@ -62795,6 +66684,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464201),
@@ -62819,6 +66709,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464202),
@@ -62843,6 +66734,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19464203),
@@ -62867,6 +66759,7 @@ pub const SUBTLE_CRYPTO_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_MEMBERS: &[GeneratedMember] = &[
@@ -62893,6 +66786,7 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19529729),
@@ -62917,6 +66811,7 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19529730),
@@ -62941,6 +66836,7 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19529731),
@@ -62965,6 +66861,7 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
@@ -62991,6 +66888,7 @@ pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19595265),
@@ -63015,6 +66913,7 @@ pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19595266),
@@ -63039,6 +66938,7 @@ pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19595267),
@@ -63063,6 +66963,7 @@ pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19595268),
@@ -63087,6 +66988,7 @@ pub const TEXT_DECODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
@@ -63113,6 +67015,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19660801),
@@ -63137,6 +67040,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19660802),
@@ -63161,6 +67065,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19660803),
@@ -63185,6 +67090,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19660804),
@@ -63209,6 +67115,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19660805),
@@ -63233,6 +67140,7 @@ pub const TEXT_DECODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_ENCODER_MEMBERS: &[GeneratedMember] = &[
@@ -63259,6 +67167,7 @@ pub const TEXT_ENCODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19726337),
@@ -63283,6 +67192,7 @@ pub const TEXT_ENCODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19726338),
@@ -63307,6 +67217,7 @@ pub const TEXT_ENCODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19726339),
@@ -63331,6 +67242,7 @@ pub const TEXT_ENCODER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_ENCODER_STREAM_MEMBERS: &[GeneratedMember] = &[
@@ -63357,6 +67269,7 @@ pub const TEXT_ENCODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19791873),
@@ -63381,6 +67294,7 @@ pub const TEXT_ENCODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19791874),
@@ -63405,6 +67319,7 @@ pub const TEXT_ENCODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19791875),
@@ -63429,6 +67344,7 @@ pub const TEXT_ENCODER_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
@@ -63455,6 +67371,7 @@ pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19857409),
@@ -63479,6 +67396,7 @@ pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19857410),
@@ -63503,6 +67421,7 @@ pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19857411),
@@ -63527,6 +67446,7 @@ pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19857412),
@@ -63551,6 +67471,7 @@ pub const TEXT_FORMAT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_FORMAT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -63577,6 +67498,7 @@ pub const TEXT_FORMAT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19922945),
@@ -63601,6 +67523,7 @@ pub const TEXT_FORMAT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
@@ -63627,6 +67550,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988481),
@@ -63651,6 +67575,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988482),
@@ -63675,6 +67600,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988483),
@@ -63699,6 +67625,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988484),
@@ -63723,6 +67650,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988485),
@@ -63747,6 +67675,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988486),
@@ -63771,6 +67700,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988487),
@@ -63795,6 +67725,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988488),
@@ -63819,6 +67750,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988489),
@@ -63843,6 +67775,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(19988490),
@@ -63867,6 +67800,7 @@ pub const TEXT_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
@@ -63893,6 +67827,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054017),
@@ -63917,6 +67852,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054018),
@@ -63941,6 +67877,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054019),
@@ -63965,6 +67902,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054020),
@@ -63989,6 +67927,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054021),
@@ -64013,6 +67952,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20054022),
@@ -64037,6 +67977,7 @@ pub const TEXT_TRACK_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_TRACK_CUE_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -64063,6 +68004,7 @@ pub const TEXT_TRACK_CUE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20119553),
@@ -64087,6 +68029,7 @@ pub const TEXT_TRACK_CUE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20119554),
@@ -64111,6 +68054,7 @@ pub const TEXT_TRACK_CUE_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -64137,6 +68081,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20185089),
@@ -64161,6 +68106,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20185090),
@@ -64185,6 +68131,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20185091),
@@ -64209,6 +68156,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20185092),
@@ -64233,6 +68181,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20185093),
@@ -64257,6 +68206,7 @@ pub const TEXT_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -64283,6 +68233,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20250625),
@@ -64307,6 +68258,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20250626),
@@ -64331,6 +68283,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20250627),
@@ -64355,6 +68308,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20250628),
@@ -64379,6 +68333,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20250629),
@@ -64403,6 +68358,7 @@ pub const TEXT_UPDATE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TOGGLE_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -64429,6 +68385,7 @@ pub const TOGGLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20316161),
@@ -64453,6 +68410,7 @@ pub const TOGGLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20316162),
@@ -64477,6 +68435,7 @@ pub const TOGGLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20316163),
@@ -64501,6 +68460,7 @@ pub const TOGGLE_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
@@ -64527,6 +68487,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381697),
@@ -64551,6 +68512,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381698),
@@ -64575,6 +68537,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381699),
@@ -64599,6 +68562,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381700),
@@ -64623,6 +68587,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381701),
@@ -64647,6 +68612,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381702),
@@ -64671,6 +68637,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381703),
@@ -64695,6 +68662,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381704),
@@ -64719,6 +68687,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381705),
@@ -64743,6 +68712,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381706),
@@ -64767,6 +68737,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381707),
@@ -64791,6 +68762,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20381708),
@@ -64815,6 +68787,7 @@ pub const TOUCH_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -64841,6 +68814,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447233),
@@ -64865,6 +68839,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447234),
@@ -64889,6 +68864,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447235),
@@ -64913,6 +68889,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447236),
@@ -64937,6 +68914,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447237),
@@ -64961,6 +68939,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447238),
@@ -64985,6 +68964,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20447239),
@@ -65009,6 +68989,7 @@ pub const TOUCH_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TOUCH_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -65035,6 +69016,7 @@ pub const TOUCH_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20512769),
@@ -65059,6 +69041,7 @@ pub const TOUCH_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRACK_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -65085,6 +69068,7 @@ pub const TRACK_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20578305),
@@ -65109,6 +69093,7 @@ pub const TRACK_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRANSFORM_STREAM_MEMBERS: &[GeneratedMember] = &[
@@ -65135,6 +69120,7 @@ pub const TRANSFORM_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20643841),
@@ -65159,6 +69145,7 @@ pub const TRANSFORM_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20643842),
@@ -65183,6 +69170,7 @@ pub const TRANSFORM_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRANSFORM_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
@@ -65209,6 +69197,7 @@ pub const TRANSFORM_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20709377),
@@ -65233,6 +69222,7 @@ pub const TRANSFORM_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20709378),
@@ -65257,6 +69247,7 @@ pub const TRANSFORM_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20709379),
@@ -65281,6 +69272,7 @@ pub const TRANSFORM_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRANSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -65307,6 +69299,7 @@ pub const TRANSITION_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
@@ -65333,6 +69326,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840449),
@@ -65357,6 +69351,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840450),
@@ -65381,6 +69376,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840451),
@@ -65405,6 +69401,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840452),
@@ -65429,6 +69426,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840453),
@@ -65453,6 +69451,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840454),
@@ -65477,6 +69476,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840455),
@@ -65501,6 +69501,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840456),
@@ -65525,6 +69526,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840457),
@@ -65549,6 +69551,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20840458),
@@ -65573,6 +69576,7 @@ pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_H_T_M_L_MEMBERS: &[GeneratedMember] = &[
@@ -65599,6 +69603,7 @@ pub const TRUSTED_H_T_M_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(20905985),
@@ -65623,6 +69628,7 @@ pub const TRUSTED_H_T_M_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_PARSER_OPTIONS_MEMBERS: &[GeneratedMember] = &[
@@ -65649,6 +69655,7 @@ pub const TRUSTED_PARSER_OPTIONS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_SCRIPT_MEMBERS: &[GeneratedMember] = &[
@@ -65675,6 +69682,7 @@ pub const TRUSTED_SCRIPT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21037057),
@@ -65699,6 +69707,7 @@ pub const TRUSTED_SCRIPT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_SCRIPT_U_R_L_MEMBERS: &[GeneratedMember] = &[
@@ -65725,6 +69734,7 @@ pub const TRUSTED_SCRIPT_U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21102593),
@@ -65749,6 +69759,7 @@ pub const TRUSTED_SCRIPT_U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
@@ -65775,6 +69786,7 @@ pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21168129),
@@ -65799,6 +69811,7 @@ pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21168130),
@@ -65823,6 +69836,7 @@ pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21168131),
@@ -65847,6 +69861,7 @@ pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21168132),
@@ -65871,6 +69886,7 @@ pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
@@ -65897,6 +69913,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233665),
@@ -65921,6 +69938,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233666),
@@ -65945,6 +69963,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233667),
@@ -65969,6 +69988,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233668),
@@ -65993,6 +70013,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233669),
@@ -66017,6 +70038,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233670),
@@ -66041,6 +70063,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233671),
@@ -66065,6 +70088,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21233672),
@@ -66089,6 +70113,7 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const U_I_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -66115,6 +70140,7 @@ pub const U_I_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21299201),
@@ -66139,6 +70165,7 @@ pub const U_I_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21299202),
@@ -66163,6 +70190,7 @@ pub const U_I_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21299203),
@@ -66187,6 +70215,7 @@ pub const U_I_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
@@ -66213,6 +70242,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364737),
@@ -66237,6 +70267,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364738),
@@ -66261,6 +70292,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364739),
@@ -66285,6 +70317,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364740),
@@ -66309,6 +70342,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364741),
@@ -66333,6 +70367,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364742),
@@ -66357,6 +70392,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364743),
@@ -66381,6 +70417,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364744),
@@ -66405,6 +70442,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364745),
@@ -66429,6 +70467,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364746),
@@ -66453,6 +70492,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364747),
@@ -66477,6 +70517,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364748),
@@ -66501,6 +70542,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364749),
@@ -66525,6 +70567,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364750),
@@ -66549,6 +70592,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364751),
@@ -66573,6 +70617,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21364752),
@@ -66597,6 +70642,7 @@ pub const U_R_L_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
@@ -66623,6 +70669,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430273),
@@ -66647,6 +70694,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430274),
@@ -66671,6 +70719,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430275),
@@ -66695,6 +70744,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430276),
@@ -66719,6 +70769,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430277),
@@ -66743,6 +70794,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430278),
@@ -66767,6 +70819,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430279),
@@ -66791,6 +70844,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430280),
@@ -66815,6 +70869,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430281),
@@ -66839,6 +70894,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21430282),
@@ -66863,6 +70919,7 @@ pub const U_R_L_SEARCH_PARAMS_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
@@ -66889,6 +70946,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495809),
@@ -66913,6 +70971,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495810),
@@ -66937,6 +70996,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495811),
@@ -66961,6 +71021,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495812),
@@ -66985,6 +71046,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495813),
@@ -67009,6 +71071,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495814),
@@ -67033,6 +71096,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495815),
@@ -67057,6 +71121,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495816),
@@ -67081,6 +71146,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495817),
@@ -67105,6 +71171,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495818),
@@ -67129,6 +71196,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21495819),
@@ -67153,6 +71221,7 @@ pub const V_T_T_CUE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
@@ -67179,6 +71248,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561345),
@@ -67203,6 +71273,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561346),
@@ -67227,6 +71298,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561347),
@@ -67251,6 +71323,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561348),
@@ -67275,6 +71348,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561349),
@@ -67299,6 +71373,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561350),
@@ -67323,6 +71398,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561351),
@@ -67347,6 +71423,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21561352),
@@ -67371,6 +71448,7 @@ pub const V_T_T_REGION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
@@ -67397,6 +71475,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626881),
@@ -67421,6 +71500,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626882),
@@ -67445,6 +71525,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626883),
@@ -67469,6 +71550,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626884),
@@ -67493,6 +71575,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626885),
@@ -67517,6 +71600,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626886),
@@ -67541,6 +71625,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626887),
@@ -67565,6 +71650,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626888),
@@ -67589,6 +71675,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626889),
@@ -67613,6 +71700,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21626890),
@@ -67637,6 +71725,7 @@ pub const VALIDITY_STATE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
@@ -67663,6 +71752,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692417),
@@ -67687,6 +71777,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692418),
@@ -67711,6 +71802,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692419),
@@ -67735,6 +71827,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692420),
@@ -67759,6 +71852,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692421),
@@ -67783,6 +71877,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692422),
@@ -67807,6 +71902,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692423),
@@ -67831,6 +71927,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692424),
@@ -67855,6 +71952,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692425),
@@ -67879,6 +71977,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692426),
@@ -67903,6 +72002,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692427),
@@ -67927,6 +72027,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692428),
@@ -67951,6 +72052,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692429),
@@ -67975,6 +72077,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21692430),
@@ -67999,6 +72102,7 @@ pub const VIDEO_FRAME_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
@@ -68025,6 +72129,7 @@ pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21757953),
@@ -68049,6 +72154,7 @@ pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21757954),
@@ -68073,6 +72179,7 @@ pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21757955),
@@ -68097,6 +72204,7 @@ pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21757956),
@@ -68121,6 +72229,7 @@ pub const VIDEO_TRACK_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
@@ -68147,6 +72256,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823489),
@@ -68171,6 +72281,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823490),
@@ -68195,6 +72306,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823491),
@@ -68219,6 +72331,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823492),
@@ -68243,6 +72356,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823493),
@@ -68267,6 +72381,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21823494),
@@ -68291,6 +72406,7 @@ pub const VIDEO_TRACK_LIST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
@@ -68317,6 +72433,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889025),
@@ -68341,6 +72458,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889026),
@@ -68365,6 +72483,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889027),
@@ -68389,6 +72508,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889028),
@@ -68413,6 +72533,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889029),
@@ -68437,6 +72558,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889030),
@@ -68461,6 +72583,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889031),
@@ -68485,6 +72608,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889032),
@@ -68509,6 +72633,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21889033),
@@ -68533,6 +72658,7 @@ pub const VISUAL_VIEWPORT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
@@ -68559,6 +72685,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954561),
@@ -68583,6 +72710,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954562),
@@ -68607,6 +72735,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954563),
@@ -68631,6 +72760,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954564),
@@ -68655,6 +72785,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954565),
@@ -68679,6 +72810,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954566),
@@ -68703,6 +72835,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954567),
@@ -68727,6 +72860,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954568),
@@ -68751,6 +72885,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954569),
@@ -68775,6 +72910,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954570),
@@ -68799,6 +72935,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954571),
@@ -68823,6 +72960,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954572),
@@ -68847,6 +72985,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954573),
@@ -68871,6 +73010,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954574),
@@ -68895,6 +73035,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954575),
@@ -68919,6 +73060,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(21954576),
@@ -68943,6 +73085,7 @@ pub const WEB_SOCKET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
@@ -68969,6 +73112,7 @@ pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22020097),
@@ -68993,6 +73137,7 @@ pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22020098),
@@ -69017,6 +73162,7 @@ pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22020099),
@@ -69041,6 +73187,7 @@ pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22020100),
@@ -69065,6 +73212,7 @@ pub const WHEEL_EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
@@ -69091,6 +73239,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085633),
@@ -69115,6 +73264,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085634),
@@ -69139,6 +73289,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085635),
@@ -69163,6 +73314,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085636),
@@ -69187,6 +73339,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085637),
@@ -69211,6 +73364,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085638),
@@ -69235,6 +73389,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085639),
@@ -69259,6 +73414,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085640),
@@ -69283,6 +73439,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085641),
@@ -69307,6 +73464,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085642),
@@ -69331,6 +73489,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085643),
@@ -69355,6 +73514,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085644),
@@ -69379,6 +73539,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085645),
@@ -69403,6 +73564,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085646),
@@ -69427,6 +73589,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085647),
@@ -69451,6 +73614,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085648),
@@ -69475,6 +73639,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085649),
@@ -69499,6 +73664,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085650),
@@ -69523,6 +73689,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: Some("href"),
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085651),
@@ -69547,6 +73714,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22085652),
@@ -69571,6 +73739,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WINDOW_CLIENT_MEMBERS: &[GeneratedMember] = &[
@@ -69597,6 +73766,7 @@ pub const WINDOW_CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22151169),
@@ -69621,6 +73791,7 @@ pub const WINDOW_CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22151170),
@@ -69645,6 +73816,7 @@ pub const WINDOW_CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22151171),
@@ -69669,6 +73841,7 @@ pub const WINDOW_CLIENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WORKER_MEMBERS: &[GeneratedMember] = &[
@@ -69695,6 +73868,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22216705),
@@ -69719,6 +73893,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22216706),
@@ -69743,6 +73918,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22216707),
@@ -69767,6 +73943,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22216708),
@@ -69791,6 +73968,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22216709),
@@ -69815,6 +73993,7 @@ pub const WORKER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
@@ -69841,6 +74020,7 @@ pub const WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22282241),
@@ -69865,6 +74045,7 @@ pub const WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22282242),
@@ -69889,6 +74070,7 @@ pub const WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22282243),
@@ -69913,6 +74095,7 @@ pub const WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WORKER_NAVIGATOR_MEMBERS: &[GeneratedMember] = &[
@@ -69939,6 +74122,7 @@ pub const WORKER_NAVIGATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
@@ -69965,6 +74149,7 @@ pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22413313),
@@ -69989,6 +74174,7 @@ pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22413314),
@@ -70013,6 +74199,7 @@ pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22413315),
@@ -70037,6 +74224,7 @@ pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22413316),
@@ -70061,6 +74249,7 @@ pub const WRITABLE_STREAM_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WRITABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
@@ -70087,6 +74276,7 @@ pub const WRITABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22478849),
@@ -70111,6 +74301,7 @@ pub const WRITABLE_STREAM_DEFAULT_CONTROLLER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
@@ -70137,6 +74328,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544385),
@@ -70161,6 +74353,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544386),
@@ -70185,6 +74378,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544387),
@@ -70209,6 +74403,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544388),
@@ -70233,6 +74428,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544389),
@@ -70257,6 +74453,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22544390),
@@ -70281,6 +74478,7 @@ pub const WRITABLE_STREAM_DEFAULT_WRITER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
@@ -70307,6 +74505,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609921),
@@ -70331,6 +74530,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609922),
@@ -70355,6 +74555,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609923),
@@ -70379,6 +74580,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609924),
@@ -70403,6 +74605,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609925),
@@ -70427,6 +74630,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609926),
@@ -70451,6 +74655,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609927),
@@ -70475,6 +74680,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609928),
@@ -70499,6 +74705,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609929),
@@ -70523,6 +74730,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609930),
@@ -70547,6 +74755,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609931),
@@ -70571,6 +74780,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609932),
@@ -70595,6 +74805,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609933),
@@ -70619,6 +74830,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609934),
@@ -70643,6 +74855,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609935),
@@ -70667,6 +74880,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609936),
@@ -70691,6 +74905,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609937),
@@ -70715,6 +74930,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609938),
@@ -70739,6 +74955,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609939),
@@ -70763,6 +74980,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609940),
@@ -70787,6 +75005,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609941),
@@ -70811,6 +75030,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609942),
@@ -70835,6 +75055,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609943),
@@ -70859,6 +75080,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22609944),
@@ -70883,6 +75105,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
@@ -70909,6 +75132,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675457),
@@ -70933,6 +75157,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675458),
@@ -70957,6 +75182,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675459),
@@ -70981,6 +75207,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675460),
@@ -71005,6 +75232,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675461),
@@ -71029,6 +75257,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22675462),
@@ -71053,6 +75282,7 @@ pub const X_M_L_HTTP_REQUEST_EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_M_L_HTTP_REQUEST_UPLOAD_MEMBERS: &[GeneratedMember] = &[];
@@ -71080,6 +75310,7 @@ pub const X_M_L_SERIALIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22806529),
@@ -71104,6 +75335,7 @@ pub const X_M_L_SERIALIZER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_PATH_EVALUATOR_MEMBERS: &[GeneratedMember] = &[
@@ -71130,6 +75362,7 @@ pub const X_PATH_EVALUATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22872065),
@@ -71154,6 +75387,7 @@ pub const X_PATH_EVALUATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22872066),
@@ -71178,6 +75412,7 @@ pub const X_PATH_EVALUATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(22872067),
@@ -71202,6 +75437,7 @@ pub const X_PATH_EVALUATOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_PATH_EXPRESSION_MEMBERS: &[GeneratedMember] = &[
@@ -71228,6 +75464,7 @@ pub const X_PATH_EXPRESSION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_PATH_N_S_RESOLVER_MEMBERS: &[GeneratedMember] = &[
@@ -71254,6 +75491,7 @@ pub const X_PATH_N_S_RESOLVER_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
@@ -71280,6 +75518,7 @@ pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23068673),
@@ -71304,6 +75543,7 @@ pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23068674),
@@ -71328,6 +75568,7 @@ pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23068675),
@@ -71352,6 +75593,7 @@ pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23068676),
@@ -71376,6 +75618,7 @@ pub const X_PATH_NAMESPACE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
@@ -71402,6 +75645,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134209),
@@ -71426,6 +75670,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134210),
@@ -71450,6 +75695,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134211),
@@ -71474,6 +75720,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134212),
@@ -71498,6 +75745,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134213),
@@ -71522,6 +75770,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134214),
@@ -71546,6 +75795,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134215),
@@ -71570,6 +75820,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134216),
@@ -71594,6 +75845,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134217),
@@ -71618,6 +75870,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134218),
@@ -71642,6 +75895,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134219),
@@ -71666,6 +75920,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134220),
@@ -71690,6 +75945,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134221),
@@ -71714,6 +75970,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134222),
@@ -71738,6 +75995,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134223),
@@ -71762,6 +76020,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134224),
@@ -71786,6 +76045,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134225),
@@ -71810,6 +76070,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23134226),
@@ -71834,6 +76095,7 @@ pub const X_PATH_RESULT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
@@ -71860,6 +76122,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199745),
@@ -71884,6 +76147,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199746),
@@ -71908,6 +76172,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199747),
@@ -71932,6 +76197,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199748),
@@ -71956,6 +76222,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199749),
@@ -71980,6 +76247,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199750),
@@ -72004,6 +76272,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199751),
@@ -72028,6 +76297,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
     GeneratedMember {
         id: GeneratedMemberId(23199752),
@@ -72052,6 +76322,7 @@ pub const X_S_L_T_PROCESSOR_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
     },
 ];
 pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[

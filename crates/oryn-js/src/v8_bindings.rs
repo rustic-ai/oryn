@@ -17270,6 +17270,18 @@ fn binding_state_for_receiver(
         .or_else(|| scope.get_current_context().get_slot::<V8BindingState>())
 }
 
+fn lenient_receiver_is_incompatible(
+    scope: &mut v8::PinScope,
+    receiver: v8::Local<v8::Object>,
+    interface: &str,
+) -> bool {
+    let Some(state) = binding_state_for_receiver(scope, receiver) else { return true };
+    // Brand probing uses native wrapper state, never JavaScript properties.
+    matches!(resolve_receiver(scope, &state, receiver, interface),
+        Err(V8BindingError::Binding(BindingError::WrongBrand { .. }))
+        | Err(V8BindingError::Binding(BindingError::UnknownWrapper(_))))
+}
+
 fn generated_attribute_getter<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     args: v8::FunctionCallbackArguments<'s>,
@@ -17288,6 +17300,10 @@ fn generated_attribute_getter<'s>(
         return;
     };
     let member = metadata.name;
+    if metadata.legacy_lenient_this && lenient_receiver_is_incompatible(scope, args.this(), interface) {
+        return_value.set(v8::undefined(scope).into());
+        return;
+    }
     if interface=="FontFaceSetLoadEvent"&&member=="fontfaces"{
         match font_loading::font_event_faces(scope,args.this()){Ok(value)=>return_value.set(value),Err(error)=>throw_binding_error(scope,&error)}
         return;
@@ -18263,6 +18279,9 @@ fn generated_attribute_setter_impl<'s>(
         return;
     };
     let member = metadata.name;
+    if metadata.legacy_lenient_this && lenient_receiver_is_incompatible(scope, args.this(), interface) {
+        return;
+    }
     if interface=="FontFace" {
         let result=(||{
             let (state,id)=font_loading::font_receiver(scope,args.this(),interface)?;
@@ -34539,6 +34558,28 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const key of ['onmouseenter','onmouseleave']) {
+                const descriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,key);
+                for(const receiver of [{},HTMLElement.prototype,document,document.createElementNS('http://www.w3.org/2000/svg','svg'),new Proxy(table,{})]) {
+                    eq(descriptor.get.call(receiver),undefined,'lenient getter '+key);
+                    eq(descriptor.set.call(receiver,{toString(){throw Error('must not convert')}}),undefined,'lenient setter '+key);
+                }
+                let calls=0;table[key]=()=>calls++;table.dispatchEvent(new Event(key.slice(2)));
+                eq(calls,1,'lenient valid dispatch '+key);table[key]=null;eq(table[key],null,'lenient valid clear '+key);
+            }
+            for(const name of ['abort','auxclick','beforeinput','beforematch','cancel','canplay','contextmenu','cuechange','dblclick','keypress','loadedmetadata','mousedown','mousemove','reset','resize','scrollend','securitypolicyviolation','slotchange','timeupdate','wheel']) {
+                const key='on'+name,descriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,key);
+                eq(typeof descriptor.get,'function','handler getter '+name);eq(typeof descriptor.set,'function','handler setter '+name);
+                eq(descriptor.enumerable,true,'handler enumerable '+name);eq(descriptor.configurable,true,'handler configurable '+name);
+                eq(table[key],null,'handler missing '+name);
+                let calls=0;const handler=function(event){eq(this,table,'handler this');eq(event.type,name,'handler event');calls++};
+                table[key]=handler;eq(table[key],handler,'handler identity '+name);
+                table.dispatchEvent(new Event(name));eq(calls,1,'handler dispatch '+name);
+                table[key]=7;eq(table[key],null,'handler noncallable clears '+name);
+                table.dispatchEvent(new Event(name));eq(calls,1,'cleared handler '+name);
+                let rejected=false;try{descriptor.set.call({},handler)}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'handler receiver '+name);
+            }
             table.bgColor=null;eq(table.getAttribute('bgcolor'),'','legacy null');
             table.bgColor=undefined;eq(table.bgColor,'undefined','undefined not null');
             table.cellPadding='\ud800';eq(table.getAttribute('cellpadding'),'\ud800','lossless DOMString');

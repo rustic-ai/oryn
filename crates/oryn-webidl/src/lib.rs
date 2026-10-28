@@ -389,6 +389,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub put_forwards: Option<&'static str>,\n\
              pub reflect_attribute: Option<&'static str>,\n\
              pub legacy_null_to_empty_string: bool,\n\
+             pub legacy_lenient_this: bool,\n\
          }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedInterface {\n\
@@ -527,13 +528,14 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             });
             let legacy_null_to_empty_string =
                 has_extended_attribute(attributes, "LegacyNullToEmptyString");
+            let legacy_lenient_this = has_extended_attribute(attributes, "LegacyLenientThis");
             let exposed = if has_extended_attribute(attributes, "Exposed") {
                 exposure_set(attributes)
             } else {
                 Vec::new()
             };
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, secure_context: {secure_context}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?}, reflect_attribute: {reflect_attribute:?}, legacy_null_to_empty_string: {legacy_null_to_empty_string} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, secure_context: {secure_context}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?}, reflect_attribute: {reflect_attribute:?}, legacy_null_to_empty_string: {legacy_null_to_empty_string}, legacy_lenient_this: {legacy_lenient_this} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -1767,6 +1769,7 @@ mod reflection_metadata_tests {
                 [CEReactions, Reflect] attribute DOMString bgColor;
                 [CEReactions, Reflect=charoff, LegacyNullToEmptyString] attribute DOMString chOff;
                 attribute DOMString ordinary;
+                [LegacyLenientThis] attribute EventHandler onmouseenter;
             };"#,
         ).unwrap();
         let generated = emit_binding_registry(&definitions).unwrap();
@@ -1775,5 +1778,7 @@ mod reflection_metadata_tests {
         assert!(generated.contains("legacy_null_to_empty_string: true"));
         assert!(generated.contains("reflect_attribute: None"));
         assert!(generated.contains("ce_reactions: true"));
+        assert!(generated.contains("legacy_lenient_this: true"));
+        assert!(generated.contains("legacy_lenient_this: false"));
     }
 }
