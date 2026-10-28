@@ -44148,6 +44148,7 @@ fn install_path2d_members(
             .constructor_behavior(v8::ConstructorBehavior::Throw)
             .build(scope)
             .ok_or(V8BindingError::Allocation("Path2D method"))?;
+        function.set_name(key);
         set_object_property(scope, prototype, name, function.into())?;
     }
     Ok(())
@@ -53757,6 +53758,18 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         );
     }
 
+    #[test]
+    fn path2d_native_operations_have_webidl_names_and_descriptors() {
+        check_global_event_prototype_script(r#"(() => {
+            for(const [name,length] of [['closePath',0],['moveTo',2],['lineTo',2],['rect',4],['roundRect',4],['quadraticCurveTo',4],['bezierCurveTo',6],['arc',5],['arcTo',5],['ellipse',7],['addPath',1]]) {
+                const d=Object.getOwnPropertyDescriptor(Path2D.prototype,name),f=d&&d.value;
+                if(typeof f!=='function'||f.name!==name||f.length!==length||!d.writable||!d.enumerable||!d.configurable)throw Error('Path2D descriptor '+name);
+                let rejected=false;try{Reflect.construct(f,[])}catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('constructible Path2D operation '+name);
+                rejected=false;try{f.apply({},Array(length).fill(0))}catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('Path2D receiver '+name);
+            }
+            return true;
+        })()"#);
+    }
     #[test]
     fn rounded_rectangles_normalize_radii_and_validate_before_mutation() {
         check_global_event_prototype_script(
