@@ -2,6 +2,39 @@
 use super::{DomError, DomRuntime, NodeId, dom_string};
 
 impl DomRuntime {
+    /// Native outerText replacement. The binding must validate its receiver,
+    /// convert the DOMString and prepare script effects before calling this.
+    /// Passing the parent explicitly keeps detached-node exception selection
+    /// in the WebIDL layer and rejects stale preparation before allocating.
+    pub fn replace_element_with_rendered_text(
+        &mut self,
+        parent: NodeId,
+        node: NodeId,
+        value: &str,
+    ) -> Result<(), DomError> {
+        if self.arena().get(node)?.parent != Some(parent) {
+            return Err(DomError::NotAChild(node, parent));
+        }
+        if !matches!(self.arena().get(node)?.kind, super::NodeKind::Element { .. }) {
+            return Err(DomError::NotAnElement(node));
+        }
+        let index = self.child_index(parent, node)? as usize;
+        let children = &self.arena().get(parent)?.children;
+        let previous = index.checked_sub(1).and_then(|i| children.get(i)).copied();
+        let next = children.get(index + 1).copied();
+        let fragment = self.create_rendered_text_fragment(value, true)?;
+        let inserted = self.replace_dom_child(parent, fragment, node, next)?;
+        let Some(first) = inserted.first().copied() else { return Ok(()) };
+        let mut last = *inserted.last().expect("nonempty replacement");
+        if let Some(previous) = previous
+            && self.merge_next_text_node(previous)?
+            && first == last
+        {
+            last = previous;
+        }
+        self.merge_next_text_node(last)?;
+        Ok(())
+    }
     /// Merge exactly one following Text node, retaining the first node's
     /// identity and applying normalize's live-range transfer rules. This is
     /// deliberately not parent.normalize(): outerText must leave farther
@@ -69,6 +102,38 @@ impl DomRuntime {
 mod tests {
     use super::*;
     use crate::NodeKind;
+
+    #[test]
+    fn outer_text_replacement_merges_only_boundary_text_nodes() {
+        for value in ["Replaced", ""] {
+            let mut dom = crate::html::parse("<body>").into_runtime().unwrap();
+            let parent = dom.create_element("div");
+            let a = dom.create_text("A");
+            let b = dom.create_text("B");
+            let node = dom.create_element("span");
+            let d = dom.create_text("D");
+            let e = dom.create_text("E");
+            for child in [a,b,node,d,e] { dom.append_child(parent, child).unwrap(); }
+            dom.replace_element_with_rendered_text(parent,node,value).unwrap();
+            assert_eq!(dom.arena().get(parent).unwrap().children, [a,b,e]);
+            match &dom.arena().get(b).unwrap().kind {
+                NodeKind::Text { data } => assert_eq!(data, &format!("B{value}D")),
+                _ => panic!("replacement boundary is not text"),
+            }
+        }
+        let mut dom = crate::html::parse("<body>").into_runtime().unwrap();
+        let parent = dom.create_element("pre");
+        let node = dom.create_element("span");
+        dom.append_child(parent,node).unwrap();
+        dom.replace_element_with_rendered_text(parent,node,"\n\r\n\r").unwrap();
+        let children = &dom.arena().get(parent).unwrap().children;
+        assert_eq!(children.len(),3);
+        for child in children {
+            assert!(matches!(&dom.arena().get(*child).unwrap().kind, NodeKind::Element { name } if name.local.as_ref()=="br"));
+        }
+        let detached = dom.create_element("span");
+        assert!(matches!(dom.replace_element_with_rendered_text(parent,detached,"x"), Err(DomError::NotAChild(..))));
+    }
 
     #[test]
     fn adjacent_text_merge_does_not_normalize_the_remaining_run() {
