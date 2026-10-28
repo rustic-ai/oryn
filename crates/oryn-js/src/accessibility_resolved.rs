@@ -205,6 +205,7 @@ mod tests {
     #[test]
     fn collapse_and_expansion_preserve_both_dom_endpoint_affinities() {
         let runs = vec![ResolvedTextRun {
+            semantic_source: None,
             layout_node: 1,
             text: "A SS".into(),
             spans: vec![
@@ -223,6 +224,7 @@ mod tests {
     #[test]
     fn erased_only_alias_does_not_duplicate_rendered_base() {
         let nodes = resolved_nodes(&[ResolvedTextRun {
+            semantic_source: None,
             layout_node: 1,
             text: "I".into(),
             spans: vec![span(2, 0..1, 0..1, false)],
@@ -236,6 +238,7 @@ mod tests {
     #[test]
     fn invalid_boundaries_and_conflicting_repeated_runs_fail() {
         let mut run = ResolvedTextRun {
+            semantic_source: None,
             layout_node: 1,
             text: "😀".into(),
             spans: vec![span(2, 0..2, 0..1, false)],

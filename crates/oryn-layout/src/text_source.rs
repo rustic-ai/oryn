@@ -934,6 +934,19 @@ impl TextSource {
             text,
             spans: Vec::new(),
             aliases: Vec::new(),
+            semantic_source: Some(oryn_common::v4::SemanticTextSource {
+                text: self.text.clone(),
+                spans: self.spans.iter().map(|span| ResolvedTextSpan {
+                    owner: span.owner,
+                    source_node: span.text_node,
+                    rendered_start: span.bytes.start,
+                    rendered_end: span.bytes.end,
+                    source_start: span.utf16_start,
+                    source_end: span.utf16_start.saturating_add(span.utf16_len),
+                    transformed: span.transformed,
+                    atomic: span.atomic,
+                }).collect(),
+            }),
         };
         for span in &self.spans {
             let mut boundaries = vec![span.bytes.start, span.bytes.end];
@@ -988,6 +1001,24 @@ impl TextSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn semantic_source_keeps_soft_line_space_separate_from_paint_projection() {
+        let mut source = TextSource::default();
+        source.append(1, Some(300), "a  b");
+        let source = source.normalize(&BTreeMap::new(), &BTreeMap::new());
+        let run = source.resolved_run(1, &[TextCluster {
+            bytes: 1..2,
+            rect: oryn_common::v4::CssRect { x: 0., y: 0., width: 0., height: 1. },
+            line: 0,
+            rtl: false,
+        }], &BTreeMap::new(), &BTreeMap::new());
+        assert_eq!(run.text, "ab");
+        let semantic = run.semantic_source.unwrap();
+        assert_eq!(semantic.text, "a b");
+        assert!(semantic.spans.iter().any(|span| span.source_node == Some(300)
+            && span.rendered_start == 1 && span.rendered_end == 2));
+        assert!(run.aliases.iter().any(|span| span.rendered_start == span.rendered_end));
+    }
     #[test]
     fn erased_source_spaces_are_aliases_but_zero_source_atomic_anchors_remain_spans() {
         let mut source = TextSource::default();

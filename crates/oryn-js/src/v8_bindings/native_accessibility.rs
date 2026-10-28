@@ -401,6 +401,7 @@ mod tests {
         };
         state.set_layout(BindingLayout {
             resolved_text: vec![oryn_common::v4::ResolvedTextRun {
+                semantic_source: None,
                 layout_node: node_key(target),
                 text: "a SS".into(),
                 spans: vec![

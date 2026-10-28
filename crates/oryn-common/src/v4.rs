@@ -634,6 +634,31 @@ pub struct ResolvedTextRun {
     pub text: String,
     pub spans: Vec<ResolvedTextSpan>,
     pub aliases: Vec<ResolvedTextSpan>,
+    /// CSS-transformed paragraph source before soft-line edge trimming.
+    /// Separate from paint text: rendered-text DOM getters ignore soft wraps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_source: Option<SemanticTextSource>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SemanticTextSource {
+    pub text: String,
+    pub spans: Vec<ResolvedTextSpan>,
+}
+
+#[cfg(test)]
+mod semantic_text_source_tests {
+    use super::*;
+    #[test]
+    fn legacy_resolved_text_payload_omits_optional_semantic_source() {
+        let value = serde_json::json!({"layout_node":1,"text":"a","spans":[],"aliases":[]});
+        let mut run: ResolvedTextRun = serde_json::from_value(value.clone()).unwrap();
+        assert!(run.semantic_source.is_none());
+        assert_eq!(serde_json::to_value(&run).unwrap(), value);
+        run.semantic_source = Some(SemanticTextSource { text: " a ".into(), spans: Vec::new() });
+        let restored: ResolvedTextRun = serde_json::from_value(serde_json::to_value(&run).unwrap()).unwrap();
+        assert_eq!(restored, run);
+        assert_eq!(restored.text, "a");
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedTextSpan {

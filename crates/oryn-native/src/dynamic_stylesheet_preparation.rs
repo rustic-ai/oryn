@@ -1692,6 +1692,7 @@ mod tests {
             std::sync::Arc::new(BTreeMap::from([("font-family".into(), "Emoji".into())])),
         );
         layout.resolved_text.push(oryn_common::v4::ResolvedTextRun {
+            semantic_source: None,
             layout_node: 1,
             text: "A😀".into(),
             aliases: Vec::new(),
