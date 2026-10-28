@@ -6,10 +6,19 @@ use skrifa::{
     instance::{LocationRef, NormalizedCoord, Size},
 };
 use std::collections::BTreeMap;
+use std::sync::Arc;
 pub mod baselines;
 pub mod font_selection;
 mod ink;
 pub mod metrics;
+
+#[derive(Default)]
+struct Cancellation(Option<Arc<dyn Fn() -> bool + Send + Sync>>);
+impl std::fmt::Debug for Cancellation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CanvasCancellation")
+    }
+}
 
 /// Original native glyphs and fonts, not estimated character advances.
 #[derive(Debug)]
@@ -25,15 +34,20 @@ pub struct CanvasTextShape {
     pub font_size: f64,
     neutral_font_run: Option<PaintGlyphRun>,
     pub first_available_font: font_selection::MetricFont,
+    cancellation: Cancellation,
 }
 
 impl CanvasTextShape {
+    fn checkpoint(&self) -> Result<(), LayoutError> {
+        super::layout_checkpoint(&self.cancellation.0)
+    }
     pub fn measure(
         &self,
         script: skrifa::raw::types::Tag,
         baseline: metrics::Baseline,
         alignment: f64,
     ) -> Result<metrics::Metrics, LayoutError> {
+        self.checkpoint()?;
         self.project_metrics(
             self.first_available_font.baseline_positions(script)?,
             baseline,
@@ -47,6 +61,7 @@ impl CanvasTextShape {
         &self,
         script: skrifa::raw::types::Tag,
     ) -> Result<Option<BTreeMap<skrifa::raw::types::Tag, f64>>, LayoutError> {
+        self.checkpoint()?;
         use skrifa::raw::{TableProvider, types::Tag};
         let Some(run) = &self.neutral_font_run else {
             return Ok(None);
@@ -77,9 +92,11 @@ impl CanvasTextShape {
     }
     /// Ink union in the shaped line's coordinate system (y increases down).
     pub fn ink_bounds(&self) -> Result<Option<[f64; 4]>, LayoutError> {
+        self.checkpoint()?;
         use skrifa::{GlyphId, outline::DrawSettings};
         let mut union: Option<[f64; 4]> = None;
         for run in &self.glyph_runs {
+            self.checkpoint()?;
             if !run.font_size.is_finite()
                 || run.font_size <= 0.
                 || run.font_size > f64::from(f32::MAX)
@@ -113,10 +130,12 @@ impl CanvasTextShape {
                 .collect::<Vec<_>>();
             let outlines = font.outline_glyphs();
             for glyph in &run.glyphs {
+                self.checkpoint()?;
                 let outline = outlines.get(GlyphId::new(glyph.id)).ok_or_else(|| {
                     LayoutError::InvalidRenderedTree("canvas glyph outline is missing".into())
                 })?;
                 let mut pen = ink::Pen::new(f64::from(run.skew_degrees).to_radians().tan());
+                pen.cancellation = self.cancellation.0.clone();
                 outline
                     .draw(
                         DrawSettings::unhinted(
@@ -126,6 +145,9 @@ impl CanvasTextShape {
                         &mut pen,
                     )
                     .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+                if pen.was_cancelled {
+                    return Err(LayoutError::Cancelled);
+                }
                 if pen.invalid {
                     return Err(LayoutError::InvalidRenderedTree(
                         "non-finite canvas outline".into(),
@@ -162,9 +184,11 @@ impl CanvasTextShape {
     /// coordinates must remain distinct; these are not yet canvas baseline-
     /// adjusted TextMetrics values.
     pub fn font_metrics(&self) -> Result<Vec<skrifa::metrics::Metrics>, LayoutError> {
+        self.checkpoint()?;
         self.glyph_runs
             .iter()
             .map(|run| {
+                self.checkpoint()?;
                 let source = self.fonts.get(&run.font_key).ok_or_else(|| {
                     LayoutError::InvalidRenderedTree("canvas glyph font is missing".into())
                 })?;
@@ -190,18 +214,35 @@ pub fn shape(
     viewport: ViewportState,
     fonts: &[(String, Vec<u8>, String, bool, bool)],
 ) -> Result<CanvasTextShape, LayoutError> {
+    shape_controlled(text, font_style, viewport, fonts, None)
+}
+
+pub fn shape_controlled(
+    text: &str,
+    font_style: &BTreeMap<String, String>,
+    viewport: ViewportState,
+    fonts: &[(String, Vec<u8>, String, bool, bool)],
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+) -> Result<CanvasTextShape, LayoutError> {
+    super::layout_checkpoint(&cancelled)?;
     // Canvas replaces each ASCII whitespace character independently. It does
     // not collapse runs, trim edges or combine CRLF into one space.
-    let text: String = text
-        .chars()
-        .map(|ch| {
-            if matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ') {
-                ' '
-            } else {
-                ch
-            }
-        })
-        .collect();
+    let mut normalized = String::new();
+    normalized
+        .try_reserve_exact(text.len())
+        .map_err(|_| LayoutError::InvalidRenderedTree("canvas text allocation failed".into()))?;
+    for (index, ch) in text.chars().enumerate() {
+        if index % 1024 == 0 {
+            super::layout_checkpoint(&cancelled)?;
+        }
+        normalized.push(if matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ') {
+            ' '
+        } else {
+            ch
+        });
+    }
+    let text = normalized;
+    super::layout_checkpoint(&cancelled)?;
     let mut style = font_style.clone();
     style.extend([
         ("white-space".into(), "pre".into()),
@@ -213,8 +254,12 @@ pub fn shape(
     ]);
     let font_size = length(style_value(&style, "font-size", "10px"), 16., 16., viewport);
     let mut engine = TextEngine::new(fonts);
+    engine.cancelled = cancelled.clone();
+    super::layout_checkpoint(&cancelled)?;
     let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
+    super::layout_checkpoint(&cancelled)?;
     let shaped = engine.shape_styled(&text, 1_000_000_000., font_size, &style, viewport);
+    super::layout_checkpoint(&cancelled)?;
     let neutral = engine.shape_styled(" ", 1_000_000_000., font_size, &style, viewport);
     if let Some(error) = engine.font_demand_error {
         return Err(error);
@@ -241,6 +286,7 @@ pub fn shape(
             ))
         })
         .transpose()?;
+    super::layout_checkpoint(&cancelled)?;
     Ok(CanvasTextShape {
         width: shaped.width,
         baseline: shaped.baselines.first().copied().unwrap_or(0.),
@@ -250,12 +296,68 @@ pub fn shape(
         font_size,
         neutral_font_run: neutral.glyph_runs.into_iter().flatten().next(),
         first_available_font,
+        cancellation: Cancellation(cancelled),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn canvas_text_cancellation_stops_input_and_retained_measurement() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let flag = cancelled.clone();
+        let callback: Arc<dyn Fn() -> bool + Send + Sync> =
+            Arc::new(move || flag.load(Ordering::Relaxed));
+        assert!(matches!(
+            shape_controlled(
+                "Ag",
+                &BTreeMap::new(),
+                ViewportState::default(),
+                &[],
+                Some(callback.clone())
+            ),
+            Err(LayoutError::Cancelled)
+        ));
+        cancelled.store(false, Ordering::Relaxed);
+        let shaped = shape_controlled(
+            "Ag",
+            &BTreeMap::new(),
+            ViewportState::default(),
+            &[],
+            Some(callback),
+        )
+        .unwrap();
+        cancelled.store(true, Ordering::Relaxed);
+        assert_eq!(shaped.ink_bounds().unwrap_err(), LayoutError::Cancelled);
+        assert_eq!(shaped.font_metrics().unwrap_err(), LayoutError::Cancelled);
+        assert_eq!(
+            shaped
+                .measure(
+                    skrifa::raw::types::Tag::new(b"latn"),
+                    metrics::Baseline::Alphabetic,
+                    0.
+                )
+                .unwrap_err(),
+            LayoutError::Cancelled
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let callback: Arc<dyn Fn() -> bool + Send + Sync> =
+            Arc::new(move || count.fetch_add(1, Ordering::Relaxed) >= 3);
+        assert!(matches!(
+            shape_controlled(
+                &"a".repeat(8192),
+                &BTreeMap::new(),
+                ViewportState::default(),
+                &[],
+                Some(callback)
+            ),
+            Err(LayoutError::Cancelled)
+        ));
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+    }
     #[test]
     fn native_canvas_shape_preserves_spaces_and_original_font_glyphs() {
         let style = BTreeMap::from([

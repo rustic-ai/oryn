@@ -6,10 +6,16 @@ pub(super) struct Pen {
     pub bounds: Option<[f64; 4]>,
     pub skew: f64,
     pub invalid: bool,
+    pub cancellation: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub was_cancelled: bool,
     current: [f64; 2],
     start: [f64; 2],
 }
 impl Pen {
+    fn stopped(&mut self) -> bool {
+        self.was_cancelled |= self.cancellation.as_ref().is_some_and(|check| check());
+        self.was_cancelled
+    }
     pub(super) fn new(skew: f64) -> Self {
         Self {
             skew,
@@ -70,10 +76,16 @@ impl Pen {
 }
 impl OutlinePen for Pen {
     fn move_to(&mut self, x: f32, y: f32) {
+        if self.stopped() {
+            return;
+        }
         self.current = self.point(x, y);
         self.start = self.current;
     }
     fn line_to(&mut self, x: f32, y: f32) {
+        if self.stopped() {
+            return;
+        }
         let next = self.point(x, y);
         if next != self.current {
             self.include(self.current);
@@ -82,6 +94,9 @@ impl OutlinePen for Pen {
         self.current = next;
     }
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        if self.stopped() {
+            return;
+        }
         let control = self.point(cx, cy);
         let end = self.point(x, y);
         self.curve([
@@ -92,6 +107,9 @@ impl OutlinePen for Pen {
         ]);
     }
     fn curve_to(&mut self, ax: f32, ay: f32, bx: f32, by: f32, x: f32, y: f32) {
+        if self.stopped() {
+            return;
+        }
         self.curve([
             self.current,
             self.point(ax, ay),
@@ -100,6 +118,9 @@ impl OutlinePen for Pen {
         ]);
     }
     fn close(&mut self) {
+        if self.stopped() {
+            return;
+        }
         if self.current != self.start {
             self.include(self.current);
             self.include(self.start);
