@@ -2041,7 +2041,7 @@ interface HTMLButtonElement : HTMLElement {
   [CEReactions] attribute DOMString formMethod;
   [CEReactions] attribute boolean formNoValidate;
   [CEReactions] attribute DOMString formTarget;
-  [CEReactions] attribute DOMString value;
+  [CEReactions, Reflect] attribute DOMString value;
   [CEReactions] attribute DOMString type;
   [CEReactions] attribute DOMString name;
   [CEReactions] attribute boolean disabled;

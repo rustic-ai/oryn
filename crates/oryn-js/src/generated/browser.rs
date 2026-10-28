@@ -27407,7 +27407,7 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         replaceable: false,
         exposed: &[],
         put_forwards: None,
-        reflect_attribute: None,
+        reflect_attribute: Some("value"),
         legacy_null_to_empty_string: false,
         legacy_lenient_this: false,
     },

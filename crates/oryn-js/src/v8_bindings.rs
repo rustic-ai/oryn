@@ -34578,6 +34578,14 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [tag,defaultType,keywords] of [['input','text',['hidden','text','search','tel','url','email','password','date','month','week','time','datetime-local','number','range','color','checkbox','radio','file','submit','image','reset','button']],['button','submit',['submit','reset','button']]]) {
+                const element=document.createElement(tag);eq(element.type,defaultType,'form type missing');
+                for(const keyword of keywords) {element.type=keyword.toUpperCase();eq(element.type,keyword,'form type canonical');eq(element.getAttribute('type'),keyword.toUpperCase(),'form type raw');}
+                for(const raw of ['', 'invalid', ' text', '\ud800']) {element.type=raw;eq(element.type,defaultType,'form invalid type');eq(element.getAttribute('type'),raw,'form invalid raw');}
+                const owner=document.implementation.createHTMLDocument('form type');element.type={toString(){owner.adoptNode(element);return 'RESET'}};
+                eq(element.ownerDocument,owner,'form type conversion adoption');eq(element.type,'reset','form type adopted getter');
+                if(tag==='button') {for(const value of ['',null,undefined,'\ud800',7]) {element.value=value;eq(element.value,String(value),'button reflected value');eq(element.getAttribute('value'),String(value),'button reflected attribute');}}
+            }
             for(const [tag,member,keyword,fallback] of [['img','decoding','sync','auto'],['img','loading','lazy','eager'],['audio','loading','lazy','eager'],['video','loading','lazy','eager'],['audio','preload','metadata','auto'],['video','preload','none','auto']]) {
                 const element=document.createElement(tag);eq(element[member],fallback,'enum missing '+tag+'.'+member);
                 element[member]=keyword.toUpperCase();eq(element[member],keyword,'enum canonical');eq(element.getAttribute(member),keyword.toUpperCase(),'enum raw');
@@ -35027,6 +35035,13 @@ fn get_attribute_value<'s>(
     }
     if interface == "HTMLMapElement" && member == "areas" {
         return node_lists::elements(scope, state, node, node_lists::ElementFilter::MapAreas);
+    }
+    if interface == "HTMLInputElement" && member == "type" {
+        return v8_string(scope, &state.dom.borrow().effective_input_type(node)?);
+    }
+    if interface == "HTMLButtonElement" && member == "type" {
+        let value = state.dom.borrow().attribute_in_null_namespace(node, "type")?.unwrap_or("").to_ascii_lowercase();
+        return v8_string(scope, if matches!(value.as_str(), "reset" | "button") { &value } else { "submit" });
     }
     if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
         || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
@@ -37218,6 +37233,14 @@ fn set_attribute_value<'s>(
             state.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
         }
         return Ok(());
+    }
+    if matches!(interface, "HTMLInputElement" | "HTMLButtonElement") && member == "type" {
+        let original = wrap_node(scope, state, node)?;
+        let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let string = rust_string_preserving_utf16(scope, string)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, "type", string)?;
+        return attribute_resource_changed(scope, &owner, node, None, "type");
     }
     if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
         || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
