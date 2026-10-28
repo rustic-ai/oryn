@@ -10184,6 +10184,14 @@ mod tests {
             assert!(!input.nodes.iter().any(|node| node.id == generated.node_id));
             assert!(!output.text_clusters.contains_key(&generated.node_id));
             assert!(generated.geometry.box_model.is_some());
+            let spans: Vec<_> = output.resolved_text.iter()
+                .filter_map(|run| run.semantic_source.as_ref())
+                .flat_map(|source| &source.spans)
+                .filter(|span| span.owner == generated.node_id)
+                .collect();
+            assert!(!spans.is_empty(), "generated text must retain semantic paint ownership");
+            assert!(spans.iter().all(|span| span.source_node.is_none()),
+                "generated text must not impersonate authored DOM character data");
         }
         assert_eq!(input.nodes[1].text, "Body");
     }

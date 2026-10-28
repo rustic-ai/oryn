@@ -259,6 +259,17 @@ pub fn semantic_dom_nodes(
                 .arena()
                 .get(node)
                 .map_err(|_| "stale semantic text source identity")?;
+            // Editable controls use their element identity for native selection
+            // geometry. That value is not authored DOM character data and is
+            // excluded by the rendered-text collector, but the live identity
+            // must still be validated above.
+            if identity == span.owner
+                && matches!(&record.kind, NodeKind::Element { name }
+                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "input" | "textarea"))
+            {
+                continue;
+            }
             let data = match &record.kind {
                 NodeKind::Text { data } | NodeKind::CDataSection { data } => data,
                 _ => return Err("semantic text source is not DOM character data".into()),
@@ -310,6 +321,33 @@ mod tests {
         let element = dom.create_element("div");
         value.semantic_source.as_mut().unwrap().spans[0].source_node = Some(key(element));
         assert!(semantic_dom_nodes(&dom, &[value]).is_err());
+    }
+    #[test]
+    fn control_value_provenance_requires_live_matching_owner_and_is_not_dom_text() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        for tag in ["input", "textarea"] {
+            let control = dom.create_element(tag);
+            dom.append_child(root, control).unwrap();
+            let mut value = run("value", 0, 5);
+            let span = &mut value.semantic_source.as_mut().unwrap().spans[0];
+            span.owner = key(control);
+            span.source_node = Some(key(control));
+            let text = semantic_dom_nodes(&dom, &[value.clone()]).unwrap();
+            assert_eq!(
+                oryn_dom::reduce_rendered_text(
+                    collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()
+                ),
+                ""
+            );
+            value.semantic_source.as_mut().unwrap().spans[0].owner = key(root);
+            assert!(semantic_dom_nodes(&dom, &[value.clone()]).is_err());
+            let stale = key(control) + (1u64 << 32);
+            let span = &mut value.semantic_source.as_mut().unwrap().spans[0];
+            span.owner = stale;
+            span.source_node = Some(stale);
+            assert!(semantic_dom_nodes(&dom, &[value]).is_err());
+        }
     }
     #[test]
     fn closed_details_selects_only_first_direct_summary() {

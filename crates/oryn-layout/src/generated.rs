@@ -642,8 +642,9 @@ pub(super) fn materialize_for_media(
             node.intrinsic_image_size = None;
             node.document_replaced = false;
             node.text = text.clone();
-            node.content = Some(vec![LayoutContent::Text {
-                node_id: generated,
+            node.content = Some(vec![LayoutContent::StyledText {
+                owner: generated,
+                node_id: None,
                 text: text.clone(),
             }]);
             if interest_area {
@@ -762,8 +763,9 @@ pub(super) fn materialize_for_media(
                 let mut content = Vec::new();
                 for part in parts {
                     match part {
-                        ContentPart::Text(text) => content.push(LayoutContent::Text {
-                            node_id: generated,
+                        ContentPart::Text(text) => content.push(LayoutContent::StyledText {
+                            owner: generated,
+                            node_id: None,
                             text,
                         }),
                         ContentPart::Image(url) => {
@@ -920,8 +922,9 @@ pub(super) fn materialize_for_media(
         if owner.content.is_none() {
             let mut items = Vec::new();
             if !owner.text.is_empty() {
-                items.push(LayoutContent::Text {
-                    node_id: owner.id,
+                items.push(LayoutContent::StyledText {
+                    owner: owner.id,
+                    node_id: None,
                     text: owner.text.clone(),
                 });
             }
