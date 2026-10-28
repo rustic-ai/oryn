@@ -2073,6 +2073,7 @@ impl BaseDocument {
 
     /// Update the device and reset the stylist to process the new size
     pub fn set_stylist_device(&mut self, mut device: Device) {
+        device.set_scripting_enabled(self.stylist.device().scripting_enabled());
         if let Some((width, height)) = self.css_viewport_size {
             device.set_viewport_size(euclid::Size2D::new(width, height));
             device.set_device_size(euclid::Size2D::new(width, height) * self.viewport.scale());
@@ -2146,6 +2147,14 @@ impl BaseDocument {
         self.css_viewport_size = Some((width, height));
         self.queue_device_changes(DeviceChanges::VIEWPORT_SIZE);
         self.flush_pending_device_changes();
+    }
+
+    /// Configure the native preference before style traversal/media evaluation.
+    pub fn set_scripting_enabled(&mut self, value: bool) {
+        self.flush_pending_device_changes();
+        if self.stylist.device().scripting_enabled() == value { return; }
+        self.stylist.device_mut().set_scripting_enabled(value);
+        self.stylist.force_stylesheet_origins_dirty(style::stylesheets::OriginSet::all());
     }
 
     /// Configure the native preference before style traversal/media evaluation.

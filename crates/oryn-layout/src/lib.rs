@@ -6066,6 +6066,7 @@ fn stylo_computed_values_with_instances_controlled(
     // Shell backing pixels are integral; CSS dimensions and media queries are not.
     document.set_css_viewport_size(input.viewport.width as f32, input.viewport.height as f32);
     document.set_prefers_reduced_motion(input.reduced_motion);
+    document.set_scripting_enabled(true);
     // SVG non-root transforms use the local origin. Outermost SVG viewports
     // and direct SVG children of foreignObject retain the CSS initial center.
     // This UA rule yields to presentation hints and every author declaration.
@@ -11181,6 +11182,16 @@ mod tests {
         assert_ne!(output.computed_styles[&2]["appearance"], "none");
     }
 
+    #[test]
+    fn scripting_media_hides_noscript_even_with_author_display_override() {
+        let mut node = node(2, Some(1), "noscript", "abc");
+        node.content = Some(vec![LayoutContent::Text { node_id: 30, text: "abc".into() }]);
+        let output = compute(&column_fixture("noscript{display:block!important}", vec![node]), &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&2]["display"], "none");
+        assert!(output.geometry[&2].box_model.is_none());
+        assert!(output.resolved_text.iter().all(|run| run.semantic_source.as_ref()
+            .is_none_or(|source| source.spans.iter().all(|span| span.source_node != Some(30)))));
+    }
     #[test]
     fn closed_select_shapes_selected_label_and_hides_option_geometry() {
         let mut select = node(2, Some(1), "select", "");

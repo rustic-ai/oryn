@@ -79,6 +79,19 @@ fn eval_prefers_color_scheme(context: &Context, query_value: Option<PrefersColor
     }
 }
 
+#[derive(Clone, Copy, Debug, FromPrimitive, Parse, ToCss)]
+#[repr(u8)]
+enum Scripting { None, InitialOnly, Enabled }
+
+fn eval_scripting(context: &Context, query: Option<Scripting>) -> bool {
+    let enabled = context.device().scripting_enabled();
+    match query {
+        None | Some(Scripting::Enabled) => enabled,
+        Some(Scripting::None) => !enabled,
+        Some(Scripting::InitialOnly) => false,
+    }
+}
+
 bitflags! {
     /// https://drafts.csswg.org/mediaqueries-4/#mf-interaction
     #[derive(Debug, Clone, Copy)]
@@ -169,7 +182,13 @@ fn eval_aspect_ratio(context: &Context) -> Ratio {
 }
 
 /// A list with all the media features that Servo supports.
-pub static MEDIA_FEATURES: [QueryFeatureDescription; 16] = [
+pub static MEDIA_FEATURES: [QueryFeatureDescription; 17] = [
+    feature!(
+        atom!("scripting"),
+        AllowsRanges::No,
+        keyword_evaluator!(eval_scripting, Scripting),
+        FeatureFlags::empty(),
+    ),
     feature!(
         atom!("width"),
         AllowsRanges::Yes,

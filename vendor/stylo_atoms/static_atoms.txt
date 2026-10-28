@@ -121,6 +121,7 @@ popstate
 postershown
 prefers-color-scheme
 prefers-reduced-motion
+scripting
 print
 progress
 radio

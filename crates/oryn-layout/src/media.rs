@@ -68,6 +68,7 @@ pub fn matches(
         ..Default::default()
     });
     document.set_prefers_reduced_motion(reduced_motion);
+    document.set_scripting_enabled(true);
     Ok(list.evaluate(
         document.stylist_device(),
         quirks,
@@ -78,6 +79,53 @@ pub fn matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scripting_media_tracks_device_state_and_survives_viewport_changes() {
+        use style::{
+            context::QuirksMode,
+            media_queries::MediaList,
+            parser::ParserContext,
+            stylesheets::{CssRuleType, CustomMediaEvaluator, Origin, UrlExtraData},
+        };
+        let url = UrlExtraData::from(url::Url::parse("https://example.test/").unwrap());
+        let parse = |query: &str| {
+            let mut context = ParserContext::new(
+                Origin::Author,
+                &url,
+                Some(CssRuleType::Media),
+                style_traits::ParsingMode::DEFAULT,
+                QuirksMode::NoQuirks,
+                Default::default(),
+                None,
+                None,
+                Default::default(),
+            );
+            let mut text = cssparser::ParserInput::new(query);
+            MediaList::parse(&mut context, &mut cssparser::Parser::new(&mut text))
+        };
+        let queries = [
+            parse("(scripting)"),
+            parse("(scripting: enabled)"),
+            parse("(scripting: none)"),
+            parse("(scripting: initial-only)"),
+        ];
+        let mut document = BaseDocument::new(DocumentConfig::default());
+        for enabled in [false, true, false] {
+            document.set_scripting_enabled(enabled);
+            document.set_css_viewport_size(400., 300.);
+            assert_eq!(document.stylist_device().scripting_enabled(), enabled);
+            for (query, expected) in queries.iter().zip([enabled, enabled, !enabled, false]) {
+                assert_eq!(
+                    query.evaluate(
+                        document.stylist_device(),
+                        QuirksMode::NoQuirks,
+                        &mut CustomMediaEvaluator::none()
+                    ),
+                    expected
+                );
+            }
+        }
+    }
     #[test]
     fn native_media_lists_ranges_negation_invalid_and_preferences() {
         let viewport = ViewportState {
@@ -104,11 +152,15 @@ mod tests {
             "(resolution: 2dppx)",
             "(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)",
             "not print",
+            "(scripting)",
+            "(scripting: enabled)",
         ] {
             assert!(evaluate(query), "{query}");
         }
         for query in [
             "print",
+            "(scripting: none)",
+            "(scripting: initial-only)",
             "(width > 900px)",
             "(prefers-reduced-motion: no-preference)",
             "(unknown-feature)",
@@ -197,6 +249,7 @@ pub fn source_size(params: SourceSizeInputs<'_>) -> Result<f64, String> {
         ..Default::default()
     });
     document.set_prefers_reduced_motion(reduced_motion);
+    document.set_scripting_enabled(true);
     Ok(list.evaluate(document.stylist_device(), quirks).to_f64_px())
 }
 
