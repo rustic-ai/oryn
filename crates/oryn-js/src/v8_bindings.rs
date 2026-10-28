@@ -31937,7 +31937,7 @@ fn validate_interface_node(
             }
             .into());
         };
-        if name.local.as_ref() != expected_tag {
+        if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" || name.local.as_ref() != expected_tag {
             return Err(BindingError::WrongBrand {
                 expected: InterfaceBrand::HtmlElement,
                 actual: InterfaceBrand::HtmlElement,
@@ -34611,6 +34611,9 @@ mod reflected_long_tests {
             const partOwner=document.implementation.createHTMLDocument('parts');
             const foreignCaption=partOwner.createElement('caption');parts.caption=foreignCaption;
             eq(parts.caption,foreignCaption,'foreign caption identity');eq(foreignCaption.ownerDocument,document,'foreign caption adoption');
+            const foreignNamespaceCaption=document.createElementNS('urn:foreign','caption');
+            let foreignBrand=false;try{parts.caption=foreignNamespaceCaption}catch(e){foreignBrand=e instanceof TypeError}
+            eq(foreignBrand,true,'foreign namespace caption rejected');eq(parts.caption,foreignCaption,'brand rejection preserves caption');
             const spaced=document.createElement('table');
             const space=document.createTextNode(' '),spacedBody=spaced.createTBody();
             spaced.insertBefore(space,spacedBody);const spacedHead=spaced.createTHead();
@@ -34635,6 +34638,16 @@ mod reflected_long_tests {
             const reflectionBase=document.createElement('base');reflectionBase.href='https://reflection.example/path';
             document.head.appendChild(reflectionBase);
             quote.cite='';eq(quote.cite,'https://reflection.example/path','present empty URL resolves');
+            for(const [tag,member] of [['link','href'],['script','src'],['frame','src'],['img','src'],['video','poster']]) {
+                const resource=document.createElement(tag);eq(resource[member],'','missing resource URL '+tag);
+                resource.setAttribute(member,'');eq(resource[member],'https://reflection.example/path','empty resource URL '+tag);
+                resource.removeAttribute(member);eq(resource[member],'','removed resource URL '+tag);
+            }
+            for(const token of ['NO-REFERRER','SAME-ORIGIN','STRICT-ORIGIN-WHEN-CROSS-ORIGIN','UNSAFE-URL']) {
+                link.referrerPolicy=token;eq(link.referrerPolicy,token.toLowerCase(),'policy canonical');
+                eq(link.getAttribute('referrerpolicy'),token,'policy raw retained');
+            }
+            link.referrerPolicy='invalid';eq(link.referrerPolicy,'','policy invalid default');
             quote.removeAttribute('cite');eq(quote.cite,'','removed URL');reflectionBase.remove();
             const foreign=document.implementation.createHTMLDocument('other');
             td.align={toString(){foreign.adoptNode(td);return 'right'}};
@@ -36747,9 +36760,10 @@ fn get_attribute_value<'s>(
                 };
                 return v8_string(scope, canonical);
             }
-            let reflected = if member == "referrerPolicy"
-                && !matches!(
-                    reflected.to_ascii_lowercase().as_str(),
+            if member == "referrerPolicy" {
+                let canonical = reflected.to_ascii_lowercase();
+                return v8_string(scope, if matches!(
+                    canonical.as_str(),
                     "" | "no-referrer"
                         | "no-referrer-when-downgrade"
                         | "origin"
@@ -36758,11 +36772,8 @@ fn get_attribute_value<'s>(
                         | "strict-origin"
                         | "strict-origin-when-cross-origin"
                         | "unsafe-url"
-                ) {
-                ""
-            } else {
-                reflected
-            };
+                ) { &canonical } else { "" });
+            }
             if matches!(member, "action" | "formAction") && reflected.is_empty() {
                 drop(dom);
                 let document = owner_document_for_node(state, node)?;
@@ -36784,7 +36795,7 @@ fn get_attribute_value<'s>(
             if matches!(
                 member,
                 "href" | "src" | "poster" | "data" | "action" | "formAction"
-            ) && (!reflected.is_empty() || interface == "HTMLBaseElement")
+            ) && (record.attributes.get_null(attribute).is_some() || interface == "HTMLBaseElement")
             {
                 let reflected = reflected.to_owned();
                 drop(dom);
@@ -36918,6 +36929,15 @@ fn set_attribute_value<'s>(
         let connection = post_connection_scripts::capture_insertion(scope, &prepared.owner, prepared.parent, prepared.node)?;
         let mutation = prepared.owner.dom.borrow_mut().insert_dom_node(prepared.parent, prepared.node, prepared.reference);
         return connection.finish_mutation(scope, mutation).map(|_| ());
+    }
+    if interface == "HTMLElement" && member == "hidden" {
+        // WebIDL ToBoolean does not invoke user conversion hooks.
+        if value.boolean_value(scope) {
+            state.dom.borrow_mut().set_attribute_ns(node, None, "hidden", "")?;
+        } else {
+            state.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
+        }
+        return Ok(());
     }
     if interface == "HTMLElement" && matches!(member, "inputMode" | "enterKeyHint") {
         let original = wrap_node(scope, state, node)?;
@@ -55775,6 +55795,11 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             if(reactions.length!==3||reactions[1].join('|')!=='translate||no'||reactions[2].join('|')!=='spellcheck||true')throw Error('boolean reflection reactions');
             for(const tag of ['div','input','table','meter','progress']) {
                 const element=document.createElement(tag);
+                for(const value of [false,true,0,-0,NaN,1,Infinity,'','false',' foo ',null,undefined,{},[],{toString(){throw Error('must not stringify boolean')}}]) {
+                    element.hidden=value;
+                    if(element.hidden!==Boolean(value)||element.hasAttribute('hidden')!==Boolean(value))throw Error('hidden boolean reflection '+tag);
+                    if(Boolean(value)&&element.getAttribute('hidden')!=='')throw Error('hidden attribute value '+tag);
+                }
                 for(const member of ['translate','spellcheck']) {
                     for(const value of [false,true,0,1,'false',{},null,undefined]) {
                         element[member]=value;
