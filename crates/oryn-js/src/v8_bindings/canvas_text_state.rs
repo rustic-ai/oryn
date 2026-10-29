@@ -1,5 +1,13 @@
 //! Native canvas text anchor state, shared by onscreen and offscreen contexts.
 use super::*;
+struct CanvasLanguage {
+    raw: v8::Global<v8::String>,
+    owned: font_loading::FontOwnedInput,
+    _allocation: Option<std::sync::Arc<dyn Send + Sync>>,
+}
+impl std::fmt::Debug for CanvasLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("CanvasLanguage") }
+}
 
 /// Raw WebIDL string conversion, before CSS or Canvas whitespace processing.
 /// The shared UTF-16 converter preserves CR/LF/NUL; only its CSS consumers
@@ -43,6 +51,7 @@ pub(super) struct TextState {
     rendering: &'static str,
     letter_spacing: Option<Rc<oryn_layout::cssom::native_import_graph::NativeCanvasSpacing>>,
     word_spacing: Option<Rc<oryn_layout::cssom::native_import_graph::NativeCanvasSpacing>>,
+    language: Option<Rc<CanvasLanguage>>,
 }
 impl Default for TextState {
     fn default() -> Self {
@@ -53,10 +62,31 @@ impl Default for TextState {
             baseline: "alphabetic",
             kerning: "auto", stretch: "normal", caps: "normal", rendering: "auto",
             letter_spacing: None, word_spacing: None,
+            language: None,
         }
     }
 }
 impl TextState {
+    pub(super) fn capture_language(&self, scope: &mut v8::PinScope, state: &Rc<V8BindingState>, canvas: NodeId, source_element: bool)
+        -> Result<(Option<String>, Option<std::sync::Arc<dyn Send + Sync>>), V8BindingError> {
+        let explicit = self.language.as_ref().filter(|language| language.owned.value != "inherit");
+        let source = if source_element { canvas } else { state.dom.borrow().document_element().unwrap_or(state.document_root()) };
+        let size = if let Some(language) = explicit { Some(language.owned.value.len()) }
+            else { state.dom.borrow().element_language(source)?.map(str::len) };
+        let Some(size) = size else { return Ok((None, None)); };
+        let allocation = font_loading::reserve_font_container(scope, state, size)?;
+        let mut value = String::new();
+        value.try_reserve_exact(size).map_err(|_| V8BindingError::Allocation("Canvas language projection"))?;
+        if value.capacity() > size { return Err(V8BindingError::Allocation("Canvas language projection admission")); }
+        if let Some(language) = explicit { value.push_str(&language.owned.value); }
+        else {
+            let dom = state.dom.borrow();
+            let language = dom.element_language(source)?.unwrap_or("");
+            if language.len() > size { return Err(V8BindingError::Allocation("Canvas inherited language changed during admission")); }
+            value.push_str(language);
+        }
+        Ok((Some(value), allocation))
+    }
     fn value(&self, name: &str) -> &'static str {
         match name {
             "direction" => self.direction,
@@ -143,7 +173,7 @@ pub(super) fn install(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
-    for name in ["direction", "textAlign", "textBaseline", "font", "fontKerning", "fontStretch", "fontVariantCaps", "textRendering", "letterSpacing", "wordSpacing"] {
+    for name in ["direction", "textAlign", "textBaseline", "font", "fontKerning", "fontStretch", "fontVariantCaps", "textRendering", "letterSpacing", "wordSpacing", "lang"] {
         let key = v8::String::new(scope, name)
             .ok_or(V8BindingError::Allocation("canvas text state key"))?;
         let getter = v8::Function::builder(get)
@@ -178,6 +208,12 @@ fn get(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
         return;
     };
     let name = args.data().to_rust_string_lossy(scope);
+    if name == "lang" {
+        let language = state.canvas_draw_states.borrow().get(&canvas).and_then(|draw| draw.text.language.clone());
+        if let Some(language) = language { rv.set(v8::Local::new(scope, &language.raw).into()); }
+        else if let Some(value) = v8::String::new(scope, "inherit") { rv.set(value.into()); }
+        return;
+    }
     if matches!(name.as_str(), "letterSpacing" | "wordSpacing") {
         let spacing = state.canvas_draw_states.borrow().get(&canvas).and_then(|draw| {
             if name == "letterSpacing" { draw.text.letter_spacing.clone() } else { draw.text.word_spacing.clone() }
@@ -225,6 +261,21 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
         return;
     };
     if current != canvas {
+        return;
+    }
+    if name == "lang" {
+        let result = (|| -> Result<(), V8BindingError> {
+            let _entry = state.enter_retained_allocation(scope)?;
+            let identity = (state.document_root(), state.document_generation(), state.document_stream_epoch());
+            let owned = owned_string(scope, &state, value)?;
+            let allocation = font_loading::reserve_font_container(scope, &state, std::mem::size_of::<CanvasLanguage>() + 2 * std::mem::size_of::<usize>())?;
+            if state.execution_tasks_stopped() || identity != (state.document_root(), state.document_generation(), state.document_stream_epoch()) || canvas_receiver_node(scope, &state, &args)? != canvas { return Err(V8BindingError::Message("InvalidStateError".into())); }
+            let language = Rc::new(CanvasLanguage { raw: v8::Global::new(scope, value), owned, _allocation: allocation });
+            let old = state.canvas_draw_states.borrow_mut().entry(canvas).or_default().text.language.replace(language);
+            drop(old);
+            Ok(())
+        })();
+        if let Err(error) = result { throw_binding_error(scope, &error); }
         return;
     }
     if matches!(name.as_str(), "letterSpacing" | "wordSpacing") {

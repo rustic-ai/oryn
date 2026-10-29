@@ -96,8 +96,10 @@ fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
         draw.apply_shaping(&mut style);
         let input = provider.prepare_canvas_text_input(&state.dom, request, &states, state.document_scroll_offset(), &scrolls)
             .ok_or(V8BindingError::Allocation("Canvas measurement capture unavailable"))?.map_err(V8BindingError::Message)?;
-        let shape = oryn_layout::canvas_text::shape_font_bytes_admitted(&text.value, &style, input.viewport, &input.fonts.fonts,
-            Some(input.cancelled.clone()), input.font_byte_admission.clone()).map_err(|error| V8BindingError::Message(error.to_string()))?;
+        let (language, _language_projection) = draw.capture_language(scope, &state, canvas, request.source_element)?;
+        provider.validate_canvas_text_input(&state.dom, &input).map_err(V8BindingError::Message)?;
+        let shape = oryn_layout::canvas_text::shape_font_bytes_admitted_with_language(&text.value, &style, input.viewport, &input.fonts.fonts,
+            Some(input.cancelled.clone()), input.font_byte_admission.clone(), language.as_deref()).map_err(|error| V8BindingError::Message(error.to_string()))?;
         let metrics = shape.measure_text(&text.value, draw.baseline(), shape.width * draw.alignment().fraction(rtl))
             .map_err(|error| V8BindingError::Message(error.to_string()))?;
         provider.validate_canvas_text_input(&state.dom, &input).map_err(V8BindingError::Message)?;

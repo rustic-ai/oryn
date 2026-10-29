@@ -20433,6 +20433,31 @@ mod tests {
         })();"#).unwrap();
     }
     #[test]
+    fn native_canvas_font_language_preserves_domstring_and_controls_native_locale() {
+        let mut page = RustExecutableDocument::load("<!doctype html><html lang=en><canvas id=c lang=tr></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const c=document.getElementById('c'),ctx=c.getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            check(ctx.lang==='inherit','language default');
+            for(const language of ['', 'inherit', 'en-US', 'not-a-real-lang', '\ud800']){ctx.lang=language;check(ctx.lang===language,'exact DOMString '+language)}
+            let calls=0;ctx.lang={toString(){calls++;c.width=c.width;return 'tr'}};
+            check(calls===1&&ctx.lang==='tr','language conversion/reset');
+            const d=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,'lang');
+            let error;try{d.set.call({}, {toString(){calls++;return 'en'}})}catch(e){error=e}
+            check(error instanceof TypeError&&calls===1,'language brand before conversion');
+            error=undefined;try{ctx.lang=Symbol()}catch(e){error=e}check(error instanceof TypeError,'language symbol');
+            ctx.save();ctx.lang='en';ctx.restore();check(ctx.lang==='tr','language save restore');
+            ctx.font='50px sans-serif';ctx.lang='en';const en=ctx.measureText('fi').width;
+            ctx.lang='tr';const tr=ctx.measureText('fi').width;
+            check(tr>=en,'native locale valid shaping');
+            ctx.lang='inherit';check(ctx.measureText('fi').width===tr,'native canvas inherited locale');
+            c.lang='en';check(ctx.measureText('fi').width===en,'current inherited language change');
+            ctx.reset();check(ctx.lang==='inherit','language reset');
+            const off=new OffscreenCanvas(1,1).getContext('2d');check(off.lang==='inherit','offscreen language default');
+            off.lang='\ud800';check(off.lang==='\ud800','offscreen raw DOMString');
+        })();"#).unwrap();
+    }
+    #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
         let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c style='font-size:20px'></canvas>").unwrap();
         page.execute(r#"

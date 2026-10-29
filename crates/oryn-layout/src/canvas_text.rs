@@ -261,7 +261,7 @@ pub fn shape_controlled(
     fonts: &[(String, Vec<u8>, String, bool, bool)],
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 ) -> Result<CanvasTextShape, LayoutError> {
-    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, None)
+    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, None, None)
 }
 
 /// Admit actual copies of bundled/document font bytes before Fontique and
@@ -274,7 +274,14 @@ pub fn shape_font_bytes_admitted(
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     admission: Arc<dyn crate::cssom::native_import_graph::ImportAdmission + Send + Sync>,
 ) -> Result<CanvasTextShape, LayoutError> {
-    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, Some(font_bytes::Owner::new(admission)))
+    shape_font_bytes_admitted_with_language(text, font_style, viewport, fonts, cancelled, admission, None)
+}
+pub fn shape_font_bytes_admitted_with_language(
+    text: &str, font_style: &BTreeMap<String, String>, viewport: ViewportState,
+    fonts: &[(String, Vec<u8>, String, bool, bool)], cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    admission: Arc<dyn crate::cssom::native_import_graph::ImportAdmission + Send + Sync>, language: Option<&str>,
+) -> Result<CanvasTextShape, LayoutError> {
+    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, Some(font_bytes::Owner::new(admission)), language)
 }
 fn shape_with_font_byte_admission(
     text: &str,
@@ -283,6 +290,7 @@ fn shape_with_font_byte_admission(
     fonts: &[(String, Vec<u8>, String, bool, bool)],
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     font_byte_owner: Option<font_bytes::Owner>,
+    language: Option<&str>,
 ) -> Result<CanvasTextShape, LayoutError> {
     super::layout_checkpoint(&cancelled)?;
     let admitted_text = font_byte_owner.as_ref().map(|owner| owner.normalize_text(text, &cancelled))
@@ -319,6 +327,9 @@ fn shape_with_font_byte_admission(
     let font_size = length(style_value(&style, "font-size", "10px"), 16., 16., viewport);
     let mut engine = TextEngine::new_with_font_byte_admission(fonts, font_byte_owner)?;
     engine.cancelled = cancelled.clone();
+    // Synthetic Canvas text has native provenance owner zero. Locale reaches
+    // Parley's existing ranged shaping path, not a width postprocessor.
+    engine.languages.insert(0, language.and_then(|language| fontique::Language::parse(language).ok()));
     super::layout_checkpoint(&cancelled)?;
     let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
     let spacing_metrics = first_available_font.spacing_metrics()?;
