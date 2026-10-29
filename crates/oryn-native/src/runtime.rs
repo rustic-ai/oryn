@@ -40091,6 +40091,13 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         )
         .await
         .expect("load XHR fixture");
+        // One drain is not a network-completion barrier. Use the existing
+        // native wait deadline; retain the exact states/header/JSON assertion.
+        page.wait_for(WaitPredicate::JavaScript(
+            "document.querySelector('#result').textContent !== 'pending'".into(),
+        ))
+        .await
+        .expect("XHR completes within the native wait deadline");
         assert_eq!(
             page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
                 .await
