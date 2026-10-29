@@ -179,7 +179,6 @@ pub(super) fn source(
     state: &V8BindingState,
     node: NodeId,
 ) -> Result<(Option<String>, f64, bool, Option<NodeId>), V8BindingError> {
-    refresh_layout_in_scope(scope, state)?;
     let (src, sets, auto_width) = {
         let dom = state.dom.borrow();
         let attr = |id, name| {
@@ -228,23 +227,31 @@ pub(super) fn source(
         (src, sets, auto)
     };
     let provider = state.layout_provider.borrow().clone();
-    let dpr = provider
-        .as_ref()
-        .map_or(1., |p| p.native_device_pixel_ratio());
     for (srcset, sizes, media, mime, source_node) in sets {
         let is_img = source_node.is_none();
+        let candidates = parse(&srcset);
+        if candidates.is_empty() && !is_img {
+            continue;
+        }
         if !supported_type(&mime)
             || (!media.trim().is_empty() && !native_media_matches_in_scope(scope, state, &media)?)
         {
             continue;
         }
-        let candidates = parse(&srcset);
-        if candidates.is_empty() && !is_img {
-            continue;
-        }
         let hints = source_dimensions(state, source_node)?;
         state.dom.borrow_mut().set_image_source_size(node, hints)?;
+        // With no candidate and no fallback URL, neither a viewport nor a
+        // rendered source size can affect selection. Still clear old picture
+        // dimensions above when the image no longer has a usable source.
+        if candidates.is_empty()
+            && src.as_deref().is_none_or(str::is_empty)
+        {
+            continue;
+        }
         refresh_layout_in_scope(scope, state)?;
+        let dpr = provider
+            .as_ref()
+            .map_or(1., |p| p.native_device_pixel_ratio());
         let base = state.native_document_base_url(false)?;
         let auto_size = auto_width
             .then(|| {
@@ -396,6 +403,34 @@ mod integration_tests {
         fn drain_completions(&self, _: usize) -> Vec<PlatformHostCompletion> {
             Vec::new()
         }
+    }
+    #[test]
+    fn source_less_images_do_not_require_layout_and_clear_picture_hints() {
+        super::super::tests::initialize_v8();
+        struct RejectLayout(Cell<usize>);
+        impl BindingLayoutProvider for RejectLayout {
+            fn compute_layout(&self, _: &BTreeMap<NodeId, BTreeSet<String>>) -> Result<BindingLayout, String> {
+                self.0.set(self.0.get() + 1);
+                Err("source-less selection must not request layout".into())
+            }
+        }
+        let dom = Rc::new(RefCell::new(html::parse("<body><img id=a><img id=b src='' srcset='bad 0w'><picture><source media='(width > 600px)' srcset='bad 0w'><img id=c></picture></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let provider = Rc::new(RejectLayout(Cell::new(0)));
+        state.set_layout_provider(provider.clone());
+        for id in ["a", "b", "c"] {
+            let node = dom.borrow().find_by_id(id).unwrap();
+            dom.borrow_mut().set_image_source_size(node, Some((Some(200), Some(100)))).unwrap();
+            let (url, density, responsive, owner) = source(scope, &state, node).unwrap();
+            assert_eq!(url, if id == "b" { Some(String::new()) } else { None });
+            assert_eq!((density, responsive, owner), (1., false, None));
+            assert_eq!(dom.borrow().arena().get(node).unwrap().image_source_size, None);
+        }
+        assert_eq!(provider.0.get(), 0);
     }
     #[test]
     fn picture_selection_and_live_source_removal_share_image_request_custody() {
