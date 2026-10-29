@@ -227,6 +227,41 @@ pub(super) fn compile(
     })
 }
 
+/// One text source path for one composite operation, including every glyph.
+pub(super) fn compile_group(shape: &CanvasTextShape, placement: [f64; 6], admission: &dyn ImportAdmission) -> Result<GlyphPath, V8BindingError> {
+    let mut group = Pen { elements: Vec::new(), allocation: None, admission, error: None, skew: 0. };
+    for (run_index, run) in shape.glyph_runs.iter().enumerate() {
+        for glyph_index in 0..run.glyphs.len() {
+            let glyph = compile(shape, run_index, glyph_index, placement, admission)?;
+            let mut append = |outline: &BezPath| -> Result<(), V8BindingError> {
+                for element in outline.elements() {
+                    let transform = glyph.placement;
+                    let element = match *element {
+                        PathEl::MoveTo(p) => PathEl::MoveTo(transform * p),
+                        PathEl::LineTo(p) => PathEl::LineTo(transform * p),
+                        PathEl::QuadTo(a,b) => PathEl::QuadTo(transform * a, transform * b),
+                        PathEl::CurveTo(a,b,c) => PathEl::CurveTo(transform * a, transform * b, transform * c),
+                        PathEl::ClosePath => PathEl::ClosePath,
+                    };
+                    group.append(element).map_err(V8BindingError::Message)?;
+                }
+                Ok(())
+            };
+            append(&glyph.outline)?;
+            if glyph.embolden_radius > 0. {
+                // Original glyph fill plus native contour expansion. Kurbo's
+                // stroke scratch is an explicit opaque allocation boundary.
+                let expansion = kurbo::stroke(glyph.outline.elements().iter().copied(),
+                    &kurbo::Stroke::new(glyph.embolden_radius * 2.).with_join(kurbo::Join::Round),
+                    &kurbo::StrokeOpts::default(), 0.01);
+                append(&expansion)?;
+            }
+        }
+    }
+    admission.checkpoint().map_err(V8BindingError::Message)?;
+    Ok(GlyphPath { outline: BezPath::from_vec(group.elements), placement: Affine::IDENTITY, embolden_radius: 0., _allocation: group.allocation })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

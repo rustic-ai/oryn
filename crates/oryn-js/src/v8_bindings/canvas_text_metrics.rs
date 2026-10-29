@@ -43,11 +43,14 @@ fn create<'s>(scope: &mut v8::PinScope<'s, '_>, state: &Rc<V8BindingState>, metr
 }
 
 pub(super) fn install(scope: &mut v8::PinScope, prototype: v8::Local<v8::Object>) -> Result<(), V8BindingError> {
-    let name = v8::String::new(scope, "measureText").ok_or(V8BindingError::Allocation("Canvas measurement name"))?;
-    let function = v8::Function::builder(measure).length(1).constructor_behavior(v8::ConstructorBehavior::Throw)
+    for (method, length) in [("measureText", 1), ("fillText", 3), ("strokeText", 3)] {
+    let name = v8::String::new(scope, method).ok_or(V8BindingError::Allocation("Canvas text method name"))?;
+    let function = v8::Function::builder(measure).data(name.into()).length(length).constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope).ok_or(V8BindingError::Allocation("Canvas measurement method"))?;
     function.set_name(name);
-    set_object_property(scope, prototype, "measureText", function.into())
+    set_object_property(scope, prototype, method, function.into())?;
+    }
+    Ok(())
 }
 
 fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -57,15 +60,26 @@ fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
         let state = binding_state_for_receiver(scope, owner).ok_or(V8BindingError::Unsupported {
             interface: "CanvasRenderingContext2D".into(), member: "TypeError".into() })?;
         let canvas = canvas_receiver_node(scope, &state, &args)?;
-        if args.length() < 1 { return Err(V8BindingError::Unsupported { interface: "CanvasRenderingContext2D".into(), member: "TypeError".into() }); }
+        let method = args.data().to_rust_string_lossy(scope);
+        let painting = method != "measureText";
+        if args.length() < if painting { 3 } else { 1 } { return Err(V8BindingError::Unsupported { interface: "CanvasRenderingContext2D".into(), member: "TypeError".into() }); }
         // Brand precedes ToString. Capture drawing state only after author
         // conversion, which may reset/resize the canvas or replace its stream.
         let value = args.get(0).to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let mut point = [0.; 2];
+        let mut max_width = None;
+        if painting {
+            point[0] = args.get(1).number_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+            point[1] = args.get(2).number_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+            if !args.get(3).is_undefined() { max_width = Some(args.get(3).number_value(scope).ok_or(V8BindingError::JavaScriptException)?); }
+        }
         if canvas_receiver_node(scope, &state, &args)? != canvas { return Err(V8BindingError::Message("InvalidStateError".into())); }
         let _entry = state.enter_retained_allocation(scope)?;
         let text = canvas_text_state::owned_string(scope, &state, value)?;
         refresh_layout_in_scope(scope, &state)?;
-        let draw = state.canvas_draw_states.borrow().get(&canvas).map(|draw| draw.text.clone()).unwrap_or_default();
+        let draw_state = state.canvas_draw_states.borrow().get(&canvas).cloned().unwrap_or_default();
+        let draw = &draw_state.text;
+        if painting && (point.iter().any(|value| !value.is_finite()) || max_width.is_some_and(|value| value.is_nan() || value <= 0.) || canvas_matrix_inverse(draw_state.transform).is_none() || text.value.is_empty()) { return Ok(None); }
         let provider = state.native_layout_provider().ok_or(V8BindingError::Allocation("Canvas measurement native provider"))?;
         let request = BindingCanvasFontRequest { document: state.document_root(), canvas,
             document_generation: state.document_generation(), stream_epoch: state.document_stream_epoch(),
@@ -107,7 +121,28 @@ fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
             || state.document_stream_epoch() != request.stream_epoch || canvas_receiver_node(scope, &state, &args)? != canvas {
             return Err(V8BindingError::Message("InvalidStateError".into()));
         }
-        create(scope, &state, metrics)
+        if !painting { return create(scope, &state, metrics).map(Some); }
+        let Some(placement) = canvas_text_path::text_placement(&shape, &metrics, draw.alignment(), rtl, point, max_width, draw_state.transform)? else { return Ok(None); };
+        let group = canvas_text_path::compile_group(&shape, placement, input.font_byte_admission.as_ref())?;
+        let stroking = method == "strokeText";
+        let path = if stroking {
+            let inverse = canvas_matrix_inverse(draw_state.transform).ok_or(V8BindingError::Allocation("Canvas text inverse transform"))?;
+            let mut outline = group.outline;
+            outline.apply_affine(kurbo::Affine::new(inverse));
+            let mut stroke = draw_state.stroke.clone();
+            if stroke.dash_pattern.iter().all(|value| *value == 0.) { stroke.dash_pattern.clear(); }
+            let mut result = kurbo::stroke(outline.elements().iter().copied(), &stroke, &kurbo::StrokeOpts::default(), 0.01);
+            result.apply_affine(kurbo::Affine::new(draw_state.transform));
+            result
+        } else { group.outline };
+        provider.validate_canvas_text_input(&state.dom, &input).map_err(V8BindingError::Message)?;
+        if state.execution_tasks_stopped() || canvas_receiver_node(scope, &state, &args)? != canvas { return Err(V8BindingError::Message("InvalidStateError".into())); }
+        let (width, height) = canvas_dimensions(&state, canvas)?;
+        let mut images = state.canvas_images.borrow_mut();
+        if let std::collections::btree_map::Entry::Vacant(entry) = images.entry(canvas) { entry.insert(empty_canvas_bitmap(width, height)?); }
+        let target = images.get_mut(&canvas).ok_or(V8BindingError::Allocation("Canvas text bitmap"))?;
+        canvas_gradients::paint_path(target, &path, &draw_state, stroking, false);
+        Ok(None)
     })();
-    match result { Ok(object) => rv.set(object.into()), Err(error) => throw_binding_error(scope, &error) }
+    match result { Ok(Some(object)) => rv.set(object.into()), Ok(None) => {}, Err(error) => throw_binding_error(scope, &error) }
 }

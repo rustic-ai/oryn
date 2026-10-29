@@ -20458,6 +20458,59 @@ mod tests {
         })();"#).unwrap();
     }
     #[test]
+    fn native_canvas_font_text_paint_uses_glyphs_and_preserves_current_path() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c width=160 height=80></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const c=document.getElementById('c'),ctx=c.getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const pixels=()=>ctx.getImageData(0,0,160,80).data;
+            const bounds=()=>{const a=pixels();let left=160,right=-1,top=80,bottom=-1,count=0;for(let y=0;y<80;y++)for(let x=0;x<160;x++){if(a[(y*160+x)*4+3]){left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);count++}}return {left,right,top,bottom,count}};
+            check(ctx.fillText.length===3&&ctx.strokeText.length===3,'text method lengths');
+            let calls=0,error;try{ctx.fillText.call({}, {toString(){calls++;return 'A'}},0,0)}catch(e){error=e}
+            check(error instanceof TypeError&&calls===0,'paint brand before conversion');
+            error=undefined;try{ctx.fillText('A',0)}catch(e){error=e}check(error instanceof TypeError,'paint required arguments');
+            ctx.font='40px sans-serif';ctx.fillStyle='red';ctx.beginPath();ctx.rect(130,0,10,10);
+            check(ctx.fillText('Ag',10,55)===undefined,'fill returns undefined');const full=bounds();
+            check(full.count>0&&full.left>=10&&full.bottom<65,'real native glyph fill bounds');
+            const a=pixels();check(a.some((v,i)=>i%4===0&&v>0),'fill color');
+            ctx.fillStyle='blue';ctx.fill();const p=pixels();check(p[(5*160+135)*4+2]===255,'current path retained');
+            check(p.some((v,i)=>i%4===0&&v>0),'text not appended to current path');
+            ctx.clearRect(0,0,160,80);ctx.fillStyle='red';ctx.fillText('Ag',10,55,ctx.measureText('Ag').width/2);const compressed=bounds();
+            check(compressed.count>0&&compressed.right-compressed.left<full.right-full.left,'native maxWidth compression');
+            const before=Array.from(pixels());ctx.fillText('A',NaN,10);ctx.strokeText('A',10,Infinity);ctx.fillText('A',10,10,0);
+            const after=pixels();check(before.every((v,i)=>after[i]===v),'invalid numbers no paint');
+            ctx.clearRect(0,0,160,80);ctx.strokeStyle='green';ctx.lineWidth=2;ctx.strokeText('A',10,55);
+            check(bounds().count>0,'native glyph stroke');
+            ctx.clearRect(0,0,160,80);ctx.save();ctx.beginPath();ctx.rect(0,0,5,5);ctx.clip();ctx.fillText('A',10,55);ctx.restore();check(bounds().count===0,'text clip');
+            const off=new OffscreenCanvas(80,80).getContext('2d');off.font='40px sans-serif';off.fillText('A',10,55);check(off.getImageData(0,0,80,80).data.some((v,i)=>i%4===3&&v),'offscreen text painting');
+        })();"#).unwrap();
+    }
+    #[test]
+    fn native_canvas_font_text_paint_composites_all_glyphs_and_expands_bold() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c width=160 height=80></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const ctx=document.getElementById('c').getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const bounds=()=>{const a=ctx.getImageData(0,0,160,80).data;let left=160,right=-1,count=0;for(let y=0;y<80;y++)for(let x=0;x<160;x++)if(a[(y*160+x)*4+3]){left=Math.min(left,x);right=Math.max(right,x);count++}return {left,right,count}};
+            ctx.font='40px sans-serif';ctx.fillStyle='red';ctx.globalCompositeOperation='copy';ctx.fillText('AA',10,55);const group=bounds();
+            check(group.right-group.left>ctx.measureText('A').width*1.5,'one text composite retains every glyph');
+            ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,160,80);ctx.fillText('A',10,55);const regular=bounds();
+            ctx.clearRect(0,0,160,80);ctx.font='bold 40px sans-serif';ctx.fillText('A',10,55);const bold=bounds();check(bold.count>regular.count,'native synthetic bold contour expansion');
+        })();"#).unwrap();
+    }
+    #[test]
+    fn native_canvas_font_text_paint_applies_transform_and_live_gradient() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c width=160 height=80></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const ctx=document.getElementById('c').getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const left=()=>{const a=ctx.getImageData(0,0,160,80).data;let left=160;for(let y=0;y<80;y++)for(let x=0;x<160;x++)if(a[(y*160+x)*4+3])left=Math.min(left,x);return left};
+            ctx.font='40px sans-serif';ctx.fillText('A',10,55);const regular=left();ctx.clearRect(0,0,160,80);ctx.save();ctx.translate(20,0);ctx.fillText('A',10,55);ctx.restore();check(left()===regular+20,'text CTM placement');
+            const gradient=ctx.createLinearGradient(0,0,80,0);gradient.addColorStop(0,'red');gradient.addColorStop(1,'blue');ctx.fillStyle=gradient;ctx.clearRect(0,0,160,80);ctx.fillText('MM',10,55);
+            const p=ctx.getImageData(0,0,160,80).data;check(p.some((v,i)=>i%4===0&&v)&&p.some((v,i)=>i%4===2&&v),'native text gradient');
+        })();"#).unwrap();
+    }
+    #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
         let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c style='font-size:20px'></canvas>").unwrap();
         page.execute(r#"

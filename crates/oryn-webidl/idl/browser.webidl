@@ -1630,6 +1630,8 @@ interface TextMetrics {
 
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  undefined fillText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
+  undefined strokeText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   attribute DOMString lang;
   attribute DOMString letterSpacing;
   attribute DOMString wordSpacing;
@@ -1716,6 +1718,8 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  undefined fillText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
+  undefined strokeText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   attribute DOMString lang;
   attribute DOMString letterSpacing;
   attribute DOMString wordSpacing;
