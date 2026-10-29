@@ -255,12 +255,15 @@ fn shape_with_font_byte_admission(
     font_byte_owner: Option<font_bytes::Owner>,
 ) -> Result<CanvasTextShape, LayoutError> {
     super::layout_checkpoint(&cancelled)?;
+    let admitted_text = font_byte_owner.as_ref().map(|owner| owner.normalize_text(text, &cancelled))
+        .transpose()?;
     // Canvas replaces each ASCII whitespace character independently. It does
     // not collapse runs, trim edges or combine CRLF into one space.
     let mut normalized = String::new();
     normalized
-        .try_reserve_exact(text.len())
+        .try_reserve_exact(if admitted_text.is_some() { 0 } else { text.len() })
         .map_err(|_| LayoutError::InvalidRenderedTree("canvas text allocation failed".into()))?;
+    if admitted_text.is_none() {
     for (index, ch) in text.chars().enumerate() {
         if index % 1024 == 0 {
             super::layout_checkpoint(&cancelled)?;
@@ -271,7 +274,8 @@ fn shape_with_font_byte_admission(
             ch
         });
     }
-    let text = normalized;
+    }
+    let text = admitted_text.as_ref().map_or(normalized.as_str(), |owned| owned.value.as_str());
     super::layout_checkpoint(&cancelled)?;
     let mut style = font_style.clone();
     style.extend([
@@ -288,7 +292,7 @@ fn shape_with_font_byte_admission(
     super::layout_checkpoint(&cancelled)?;
     let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
     super::layout_checkpoint(&cancelled)?;
-    let shaped = engine.shape_styled(&text, 1_000_000_000., font_size, &style, viewport);
+    let shaped = engine.shape_styled(text, 1_000_000_000., font_size, &style, viewport);
     super::layout_checkpoint(&cancelled)?;
     let neutral = engine.shape_styled(" ", 1_000_000_000., font_size, &style, viewport);
     if let Some(error) = engine.font_demand_error {
