@@ -32,6 +32,8 @@ pub fn initialize_v8_icu_data() {
 }
 
 pub mod feature_profile;
+#[cfg(feature = "v8-host")]
+mod promise_rejection_lifecycle;
 pub mod fetch_metadata;
 pub use feature_profile::{NativeFeatureProfile, UserMediaElementMode};
 pub mod accessibility_platform;

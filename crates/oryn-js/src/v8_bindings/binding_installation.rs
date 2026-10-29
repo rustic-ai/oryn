@@ -109,6 +109,7 @@ pub(super) fn create_state(
     range_selections
         .borrow_mut()
         .push(Rc::downgrade(&selection_composed_range));
+    let details_toggle_cursor = dom.borrow().mutation_cursor();
     let state = Rc::new(V8BindingState {
         stylesheet_execution_owner: RefCell::new(std::rc::Weak::new()),
         inline_publication_cursor: Cell::new(None),
@@ -158,6 +159,7 @@ pub(super) fn create_state(
         native_pointers: RefCell::new(Default::default()),
         interests: RefCell::new(Default::default()),
         popover_publications: RefCell::new(Default::default()),
+        details_toggle_cursor: Cell::new(details_toggle_cursor),
         fullscreen: RefCell::new(Default::default()),
         dialogs: RefCell::new(Default::default()),
         form_submission_jobs: RefCell::new(Default::default()),
@@ -221,6 +223,7 @@ pub(super) fn create_state(
         mutation_observers: RefCell::new(BTreeMap::new()),
         mutation_record_brand: RefCell::new(None),
         error_event_brand: RefCell::new(None),
+        promise_rejection_event_brand: RefCell::new(None),
         ui_event_brand: RefCell::new(None),
         click_in_progress: RefCell::new(BTreeSet::new()),
         reset_in_progress: RefCell::new(Vec::new()),
@@ -332,6 +335,7 @@ pub(super) fn create_state(
         owned_active_connections: RefCell::new(BTreeMap::new()),
         blocked_idb_completions: RefCell::new(VecDeque::new()),
         deferred_platform_tasks: RefCell::new(VecDeque::new()),
+        deferred_task_queue_storage: RefCell::new(None),
         prefer_deferred_platform_tasks: Cell::new(false),
         cancelled_platform_operations: RefCell::new(BTreeSet::new()),
         platform_listeners: RefCell::new(BTreeMap::new()),

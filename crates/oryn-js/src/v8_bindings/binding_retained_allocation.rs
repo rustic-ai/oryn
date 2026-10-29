@@ -132,6 +132,23 @@ impl BindingRetainedAllocation {
         }
         Ok(BindingRetainedText { text })
     }
+
+    /// Exact-capacity native storage whose physical allocation lease moves with
+    /// the values. Caller growth keeps old and new allocations admitted together.
+    pub fn allocate_buffer<T>(&self, capacity: usize)
+        -> Result<crate::idb_owned_admission::Buffer<T>, String>
+    {
+        if self.owner_cancelled() || std::thread::current().id() != self.owner_thread {
+            return Err("retained buffer owner unavailable".into());
+        }
+        let receipt = self.snapshot.lock().map_err(|_| "retained buffer snapshot poisoned")?
+            .receipt.clone().ok_or("retained buffer snapshot expired")?;
+        let buffer = crate::idb_owned_admission::Buffer::allocate_from_receipt(
+            &self.ledger, capacity, &receipt,
+        ).map_err(str::to_owned)?;
+        if self.owner_cancelled() { return Err("retained buffer owner retired".into()); }
+        Ok(buffer)
+    }
     pub fn refresh(&self, scope: &mut v8::PinScope) -> Result<(), V8BindingError> {
         if std::thread::current().id() != self.owner_thread {
             return Err(V8BindingError::Allocation(
@@ -312,6 +329,33 @@ impl V8BindingState {
         admission.refresh(scope)?;
         Ok(admission)
     }
+}
+
+/// Exact backing-store admission, independent of queue token lifetimes. Caller
+/// captures the heap receipt before borrowing native registries; this helper
+/// cannot run V8 or author callbacks while those registries are borrowed.
+pub(super) fn reserve_queue_growth<T>(
+    allocation: &BindingRetainedAllocation,
+    queue: &mut std::collections::VecDeque<T>,
+    storage: &mut Option<(usize, std::sync::Arc<dyn Send + Sync>)>,
+    additional: usize,
+) -> Result<(), V8BindingError> {
+    let required = queue.len().checked_add(additional)
+        .ok_or(V8BindingError::Allocation("retained task queue overflow"))?;
+    let planned = queue.capacity().max(required);
+    if storage.as_ref().is_none_or(|(capacity, _)| *capacity < planned) {
+        let bytes = std::alloc::Layout::array::<T>(planned)
+            .map_err(|_| V8BindingError::Allocation("retained task queue layout"))?
+            .size().checked_add(2 * std::mem::size_of::<usize>())
+            .ok_or(V8BindingError::Allocation("retained task queue metadata"))?;
+        let charge = allocation.reserve(bytes)
+            .map_err(|_| V8BindingError::Allocation("retained task queue admission"))?;
+        // The previous charge stays live until the exact replacement succeeds.
+        queue.try_reserve_exact(additional)
+            .map_err(|_| V8BindingError::Allocation("retained task queue allocation"))?;
+        *storage = Some((planned, charge));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

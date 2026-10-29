@@ -878,6 +878,9 @@ mod raw_v8 {
     include!("declarative_css_module.rs");
     include!("general_preload.rs");
     include!("module_settlement.rs");
+    include!("promise_rejection_origin.rs");
+    include!("promise_rejection_retention.rs");
+    include!("promise_rejection_notifications.rs");
     include!("parser_module_snapshot.rs");
 
     #[derive(Default)]
@@ -887,9 +890,27 @@ mod raw_v8 {
     struct ModuleResolutionFailures(Vec<String>);
 
     #[derive(Default)]
-    struct PromiseRejections(
-        std::collections::HashMap<v8::Global<v8::Promise>, (Option<EnvironmentId>, String)>,
-    );
+    struct PromiseRejections {
+        records: Option<oryn_js::idb_owned_admission::Buffer<PromiseRejectionRecord>>,
+        admission_failed: bool,
+        next_notification_id: u64,
+    }
+
+    struct PromiseRejectionRecord {
+        notification_id: u64,
+        phase: crate::promise_rejection_lifecycle::RejectionPhase,
+        diagnostic_ready: bool,
+        handled_during_dispatch: bool,
+        promise: v8::Weak<v8::Promise>,
+        environment: Option<EnvironmentId>,
+        authority_epoch: u64,
+        payload_visible: bool,
+        _weak_metadata: Arc<dyn Send + Sync>,
+    }
+
+    impl PromiseRejections {
+        fn len(&self) -> usize { self.records.as_ref().map_or(0, |records| records.as_slice().len()) }
+    }
 
     #[derive(Default)]
     struct ModuleErrorReports(Vec<String>);
@@ -1840,9 +1861,9 @@ mod raw_v8 {
                 .retain(|job| !ids.contains(&job.environment.id));
         }
         if let Some(rejections) = isolate.get_slot_mut::<PromiseRejections>() {
-            rejections.0.retain(|_, (environment, _)| {
-                !environment.is_some_and(|environment| ids.contains(&environment))
-            });
+            if let Some(records) = &mut rejections.records {
+                records.retain(|record| !record.environment.is_some_and(|id| ids.contains(&id)));
+            }
         }
         if let Some(typed) = isolate.get_slot_mut::<TypedModules>() {
             typed
@@ -4952,6 +4973,11 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
             let name = v8::String::new(scope, resource_name)
                 .ok_or_else(|| HostError::Execution("script name allocation failed".into()))?;
+            // Preserve this API's existing dynamic-import fallback metadata:
+            // one native boolean is rejection policy, not a four-field import record.
+            let options = v8::PrimitiveArray::new(scope, 1);
+            let muted = v8::Boolean::new(scope, muted_errors);
+            options.set(scope, 0, muted.into());
             let origin = v8::ScriptOrigin::new(
                 scope,
                 name.into(),
@@ -4963,7 +4989,7 @@ mod raw_v8 {
                 false,
                 false,
                 false,
-                None,
+                Some(options.into()),
             );
             queue_mutation_observer_microtask(scope);
             oryn_js::v8_bindings::publish_native_binding_memory(scope, "script_entry");
@@ -6304,6 +6330,7 @@ mod raw_v8 {
             isolate.set_slot(crate::automation_trace::AutomationTrace::default());
             isolate.set_slot(ModuleResolutionFailures::default());
             isolate.set_promise_reject_callback(promise_reject_callback);
+            isolate.set_promise_hook(promise_creation_hook);
             let origin = base_origin
                 .or_else(|| {
                     fetch_state
@@ -13460,18 +13487,80 @@ mod raw_v8 {
         }
 
         pub fn take_unhandled_promise_rejections(&mut self) -> Vec<String> {
-            self.isolate
-                .get_slot_mut::<PromiseRejections>()
-                .map(|rejections| {
-                    std::mem::take(&mut rejections.0)
-                        .into_values()
-                        .map(|(environment, detail)| {
-                            crate::native_timing::unhandled_rejection(environment.map(|id| id.0), &detail);
-                            detail
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
+            let Some(rejections) = self.isolate.get_slot_mut::<PromiseRejections>() else { return Vec::new() };
+            if let Some(records) = &mut rejections.records {
+                records.retain(|record| !record.promise.is_empty());
+            }
+            // Bound this drain to records already admitted. Extract one Fresh
+            // record at a time, leaving queued/outstanding lifecycle ownership
+            // in the registry throughout V8 entry and diagnostic conversion.
+            let ceiling = rejections.next_notification_id;
+            let failed = std::mem::take(&mut rejections.admission_failed);
+            let mut reports = Vec::new();
+            if failed { reports.push("Promise rejection retention admission failed; payload withheld".into()); }
+            let Some(context) = self.contexts.get(&self.active_realm).cloned() else { return reports };
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let entered = &mut v8::ContextScope::new(handles, context);
+            loop {
+                    let record = entered.get_slot_mut::<PromiseRejections>()
+                        .and_then(|registry| registry.records.as_mut())
+                        .and_then(|records| {
+                            let index = records.as_slice().iter().position(|record|
+                                record.notification_id <= ceiling
+                                    && (record.phase == crate::promise_rejection_lifecycle::RejectionPhase::Fresh
+                                        || record.diagnostic_ready
+                                        || record.phase == crate::promise_rejection_lifecycle::RejectionPhase::Complete))?;
+                            Some(records.remove(index))
+                        });
+                    let Some(mut record) = record else { break };
+                    if record.phase == crate::promise_rejection_lifecycle::RejectionPhase::Complete
+                        && !record.diagnostic_ready { continue }
+                    let Some(promise) = record.promise.to_local(entered) else { continue };
+                    if promise.has_handler() && !record.diagnostic_ready { continue }
+                    let Some(context) = promise.get_creation_context(entered) else { continue };
+                    let Some(environment) = context.get_slot::<EnvironmentDescriptor>() else { continue };
+                    if record.environment != Some(environment.id)
+                        || !entered.get_slot::<AgentEnvironments>()
+                            .is_some_and(|registry| registry.is_live(&environment))
+                        || context.get_slot::<V8BindingState>()
+                            .map_or(0, |state| state.document_authority_epoch()) != record.authority_epoch
+                    { continue }
+                    let scope = &mut v8::ContextScope::new(entered, context);
+                    if record.phase == crate::promise_rejection_lifecycle::RejectionPhase::Fresh
+                        && record.payload_visible
+                    {
+                        if let Some(state) = context.get_slot::<V8BindingState>() {
+                            record.phase = crate::promise_rejection_lifecycle::RejectionPhase::NotifyQueued;
+                            let id = record.notification_id;
+                            if restore_rejection_record(scope, record).is_ok()
+                                && state.queue_promise_rejection_task(scope, id, deliver_promise_rejection_notification).is_ok()
+                            { continue }
+                            reject_notification_admission(scope, id);
+                            continue;
+                        }
+                    }
+                    record.diagnostic_ready = false;
+                    let detail = if record.payload_visible {
+                        promise.result(scope).to_detail_string(scope)
+                            .map(|value| value.to_rust_string_lossy(scope))
+                            .unwrap_or_else(|| "promise rejected without a value".into())
+                    } else {
+                        "Promise creation provenance unavailable; rejection payload withheld".into()
+                    };
+                    crate::native_timing::unhandled_rejection(record.environment.map(|id| id.0), &detail);
+                    reports.push(detail);
+                    if matches!(record.phase,
+                        crate::promise_rejection_lifecycle::RejectionPhase::Outstanding
+                        | crate::promise_rejection_lifecycle::RejectionPhase::HandledQueued) {
+                        if restore_rejection_record(scope, record).is_err() {
+                            if let Some(registry) = scope.get_slot_mut::<PromiseRejections>() {
+                                registry.admission_failed = true;
+                            }
+                        }
+                    }
+            }
+            reports
         }
 
         pub fn take_module_resolution_failures(&mut self) -> Vec<String> {
@@ -13602,25 +13691,21 @@ mod raw_v8 {
     extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
         v8::callback_scope!(unsafe scope, &message);
         let promise = message.get_promise();
-        let identity = v8::Global::new(scope, promise);
-        let environment = current_environment(scope)
-            .ok()
-            .map(|environment| environment.id);
         match message.get_event() {
             v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
-                let detail = message
-                    .get_value()
-                    .and_then(|value| value.to_detail_string(scope))
-                    .map(|value| value.to_rust_string_lossy(scope))
-                    .unwrap_or_else(|| "promise rejected without a value".into());
-                if let Some(rejections) = scope.get_slot_mut::<PromiseRejections>() {
-                    rejections.0.insert(identity, (environment, detail));
+                let payload_visible = match promise_creation_policy(scope, promise) {
+                    Some((_, _, true)) => return,
+                    None => false,
+                    Some((_, _, false)) => true,
+                };
+                if retain_weak_promise_rejection(scope, promise, payload_visible).is_err() {
+                    if let Some(rejections) = scope.get_slot_mut::<PromiseRejections>() {
+                        rejections.admission_failed = true;
+                    }
                 }
             }
             v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
-                if let Some(rejections) = scope.get_slot_mut::<PromiseRejections>() {
-                    rejections.0.remove(&identity);
-                }
+                handle_promise_rejection_handler_added(scope, promise);
             }
             _ => {}
         }
@@ -18430,7 +18515,6 @@ mod raw_v8 {
                 host.isolate
                     .get_slot::<PromiseRejections>()
                     .unwrap()
-                    .0
                     .len(),
                 2
             );
@@ -18438,6 +18522,255 @@ mod raw_v8 {
             let reports = host.take_unhandled_promise_rejections();
             assert_eq!(reports.len(), 1);
             assert!(reports[0].contains("root rejection"));
+        }
+
+        #[test]
+        fn promise_creation_origin_preserves_muted_delayed_callback_policy() {
+            let mut host = host();
+            host.execute_parser_script(
+                "globalThis.makeMuted=()=>Promise.reject({secret:42});globalThis.immediateMuted=Promise.reject('secret');",
+                "https://cross-origin.test/script.js", true,
+            ).unwrap();
+            host.execute("globalThis.delayedMuted=makeMuted();globalThis.localRejected=Promise.reject('local');").unwrap();
+            {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let expected = *context.get_slot::<EnvironmentDescriptor>().unwrap();
+                for (name, muted) in [("immediateMuted", true), ("delayedMuted", true), ("localRejected", false)] {
+                    let key = v8::String::new(scope, name).unwrap();
+                    let promise = context.global(scope).get(scope, key.into()).unwrap().try_cast::<v8::Promise>().unwrap();
+                    let (environment, _, actual) = promise_creation_policy(scope, promise).unwrap();
+                    assert_eq!(environment, expected.id);
+                    assert_eq!(actual, muted, "{name}");
+                }
+            }
+            let reports = host.take_unhandled_promise_rejections();
+            assert_eq!(reports.len(), 1);
+            assert!(reports[0].contains("local"));
+        }
+
+        #[test]
+        fn promise_creation_origin_missing_metadata_withholds_payload_but_reports_failure() {
+            let mut host = host();
+            host.execute("globalThis.pending=new Promise((_,reject)=>globalThis.rejectPending=reject);").unwrap();
+            {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let key = v8::String::new(scope, "pending").unwrap();
+                let promise = context.global(scope).get(scope, key.into()).unwrap().try_cast::<v8::Promise>().unwrap();
+                let key = promise_origin_key(scope).unwrap();
+                assert_eq!(promise.delete_private(scope, key), Some(true));
+            }
+            host.execute("rejectPending('SECRET-CROSS-ORIGIN-PAYLOAD');").unwrap();
+            let reports = host.take_unhandled_promise_rejections();
+            assert_eq!(reports.len(), 1);
+            assert!(reports[0].contains("provenance unavailable"));
+            assert!(!reports[0].contains("SECRET"));
+        }
+
+        #[test]
+        fn promise_creation_origin_weak_retention_does_not_root_promise_or_reason() {
+            let mut host = host();
+            host.execute("globalThis.heldRejected=Promise.reject({onlyNativeReason:42});").unwrap();
+            let (promise, reason) = {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let key = v8::String::new(scope, "heldRejected").unwrap();
+                let promise = context.global(scope).get(scope, key.into()).unwrap().try_cast::<v8::Promise>().unwrap();
+                let reason = promise.result(scope).try_cast::<v8::Object>().unwrap();
+                (v8::Weak::new(scope, promise), v8::Weak::new(scope, reason))
+            };
+            assert!(!promise.is_empty() && !reason.is_empty());
+            host.execute("delete globalThis.heldRejected;").unwrap();
+            host.isolate.low_memory_notification();
+            assert!(promise.is_empty() && reason.is_empty());
+            assert!(host.take_unhandled_promise_rejections().is_empty());
+        }
+
+        #[test]
+        fn promise_creation_origin_early_catch_releases_weak_record() {
+            let mut host = host();
+            host.execute("globalThis.catchLater=Promise.reject('caught');").unwrap();
+            assert_eq!(host.isolate.get_slot::<PromiseRejections>().unwrap().len(), 1);
+            host.execute("catchLater.catch(()=>{});").unwrap();
+            assert_eq!(host.isolate.get_slot::<PromiseRejections>().unwrap().len(), 0);
+            assert!(host.take_unhandled_promise_rejections().is_empty());
+        }
+
+        #[test]
+        fn promise_creation_origin_expired_authority_withholds_retained_payload() {
+            let mut host = host();
+            host.execute("globalThis.expiredRejected=Promise.reject('EXPIRED-AUTHORITY-SECRET');").unwrap();
+            let records = host.isolate.get_slot_mut::<PromiseRejections>().unwrap();
+            let record = &mut records.records.as_mut().unwrap().as_mut_slice()[0];
+            // Standalone realms have epoch zero. Inject an old authority receipt
+            // to exercise dequeue-time rejection independently of initial admission.
+            record.authority_epoch = 1;
+            assert!(host.take_unhandled_promise_rejections().is_empty());
+            assert_eq!(host.isolate.get_slot::<PromiseRejections>().unwrap().len(), 0);
+        }
+
+        #[test]
+        fn promise_creation_origin_notification_identity_survives_drain_and_fails_closed_on_exhaustion() {
+            let mut host = host();
+            host.execute("globalThis.firstIdentity=Promise.reject('first');").unwrap();
+            let first = host.isolate.get_slot::<PromiseRejections>().unwrap()
+                .records.as_ref().unwrap().as_slice()[0].notification_id;
+            assert_eq!(host.take_unhandled_promise_rejections().len(), 1);
+            host.execute("globalThis.secondIdentity=Promise.reject('second');").unwrap();
+            let records = host.isolate.get_slot_mut::<PromiseRejections>().unwrap();
+            assert!(records.records.as_ref().unwrap().as_slice()[0].notification_id > first);
+            assert_eq!(records.records.as_ref().unwrap().as_slice()[0].phase,
+                crate::promise_rejection_lifecycle::RejectionPhase::Fresh);
+            records.next_notification_id = u64::MAX;
+            assert_eq!(host.take_unhandled_promise_rejections().len(), 1);
+            host.execute("globalThis.exhaustedIdentity=Promise.reject('IDENTITY-EXHAUSTION-SECRET');").unwrap();
+            let reports = host.take_unhandled_promise_rejections();
+            assert_eq!(reports.len(), 1);
+            assert!(reports[0].contains("admission failed"));
+            assert!(!reports[0].contains("SECRET"));
+        }
+
+        #[test]
+        fn promise_creation_origin_diagnostic_drain_preserves_notification_lifecycle_records() {
+            use crate::promise_rejection_lifecycle::RejectionPhase;
+            for phase in [RejectionPhase::NotifyQueued, RejectionPhase::Dispatching,
+                RejectionPhase::Outstanding, RejectionPhase::HandledQueued] {
+                let mut host = host();
+                host.execute("globalThis.notificationOwned=Promise.reject('notification reason');").unwrap();
+                let records = host.isolate.get_slot_mut::<PromiseRejections>().unwrap();
+                let record = &mut records.records.as_mut().unwrap().as_mut_slice()[0];
+                let id = record.notification_id;
+                record.phase = phase;
+                assert!(host.take_unhandled_promise_rejections().is_empty());
+                let records = host.isolate.get_slot_mut::<PromiseRejections>().unwrap();
+                assert_eq!(records.len(), 1);
+                let record = &mut records.records.as_mut().unwrap().as_mut_slice()[0];
+                assert_eq!(record.notification_id, id);
+                assert_eq!(record.phase, phase);
+                record.phase = RejectionPhase::Fresh;
+                assert_eq!(host.take_unhandled_promise_rejections(), ["notification reason"]);
+                assert!(host.take_unhandled_promise_rejections().is_empty());
+            }
+        }
+
+        #[test]
+        fn promise_creation_origin_native_notifications_preserve_payload_and_late_handling() {
+            fn drain(host: &mut RawV8Host) {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let state = context.get_slot::<V8BindingState>().unwrap();
+                state.drain_platform_completions(scope, 64).unwrap();
+            }
+            for mode in ["cancel", "report", "catch-in-event", "early-catch"] {
+                let mut host = host();
+                dynamic_import_continuation_tests::install_document(&mut host);
+                host.execute(&format!(r#"
+                    globalThis.notificationLog=[]; globalThis.notificationMode='{mode}';
+                    globalThis.notificationReason={{nativeIdentity:42}};
+                    addEventListener('unhandledrejection', e=>{{
+                        if(e.promise!==notificationPromise || e.reason!==notificationReason ||
+                           !e.isTrusted || !e.cancelable || e.bubbles || e.composed) throw Error('wrong unhandled payload');
+                        notificationLog.push('unhandled');
+                        if(notificationMode!=='report') e.preventDefault();
+                        if(notificationMode==='catch-in-event') notificationPromise.catch(()=>{{}});
+                    }});
+                    addEventListener('rejectionhandled', e=>{{
+                        if(e.promise!==notificationPromise || e.reason!==notificationReason ||
+                           !e.isTrusted || e.cancelable) throw Error('wrong handled payload');
+                        notificationLog.push('handled');
+                    }});
+                    globalThis.notificationPromise=Promise.reject(notificationReason);
+                    if(notificationMode==='early-catch') notificationPromise.catch(()=>{{}});
+                "#)).unwrap();
+                assert!(host.take_unhandled_promise_rejections().is_empty());
+                assert_eq!(host.evaluate_string("JSON.stringify(notificationLog)").unwrap(), "[]");
+                drain(&mut host);
+                let reports = host.take_unhandled_promise_rejections();
+                assert_eq!(reports.len(), usize::from(mode == "report"));
+                if mode == "early-catch" {
+                    assert_eq!(host.evaluate_string("JSON.stringify(notificationLog)").unwrap(), "[]");
+                    continue;
+                }
+                assert_eq!(host.evaluate_string("JSON.stringify(notificationLog)").unwrap(), "[\"unhandled\"]");
+                host.execute("notificationPromise.catch(()=>{});notificationPromise.catch(()=>{});").unwrap();
+                assert_eq!(host.evaluate_string("JSON.stringify(notificationLog)").unwrap(), "[\"unhandled\"]");
+                drain(&mut host);
+                host.take_unhandled_promise_rejections();
+                let expected = if mode == "catch-in-event" { "[\"unhandled\"]" } else { "[\"unhandled\",\"handled\"]" };
+                assert_eq!(host.evaluate_string("JSON.stringify(notificationLog)").unwrap(), expected);
+                assert_eq!(host.isolate.get_slot::<PromiseRejections>().unwrap().len(), 0);
+            }
+        }
+
+        #[test]
+        fn promise_creation_origin_native_dom_task_ordering_matches_original_controls() {
+            fn turn(host: &mut RawV8Host) {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let state = context.get_slot::<V8BindingState>().unwrap();
+                state.drain_platform_completions(scope, 64).unwrap();
+                scope.perform_microtask_checkpoint();
+            }
+            let mut host = host();
+            dynamic_import_continuation_tests::install_document(&mut host);
+            host.execute(r#"
+                globalThis.order=[];
+                globalThis.queueDOMTask=f=>{let d=document.createElement('details');d.ontoggle=f;d.setAttribute('open','');};
+                addEventListener('unhandledrejection',e=>{e.preventDefault();order.push(e.promise===p1?'p1':'p2');});
+                globalThis.p1=Promise.reject();globalThis.p2;
+                queueDOMTask(()=>{p2=Promise.reject();queueDOMTask(()=>order.push('queueTask'));});
+            "#).unwrap();
+            for _ in 0..4 { host.take_unhandled_promise_rejections(); turn(&mut host); }
+            assert_eq!(host.evaluate_string("JSON.stringify(order)").unwrap(), "[\"p1\",\"queueTask\",\"p2\"]");
+            host.execute(r#"
+                globalThis.lateOrder=[];
+                addEventListener('unhandledrejection',e=>{if(e.promise===latePromise){e.preventDefault();lateOrder.push('unhandled');}});
+                addEventListener('rejectionhandled',e=>{if(e.promise===latePromise)lateOrder.push('handled');});
+                globalThis.latePromise=Promise.reject();
+            "#).unwrap();
+            host.take_unhandled_promise_rejections(); turn(&mut host);
+            host.execute(r#"
+                queueDOMTask(()=>lateOrder.push('task before catch'));
+                latePromise.catch(()=>lateOrder.push('catch'));
+                queueDOMTask(()=>lateOrder.push('task after catch'));
+                lateOrder.push('after catch');
+            "#).unwrap();
+            turn(&mut host);
+            assert_eq!(host.evaluate_string("JSON.stringify(lateOrder)").unwrap(),
+                "[\"unhandled\",\"after catch\",\"catch\",\"task before catch\",\"handled\",\"task after catch\"]");
+        }
+
+        #[test]
+        fn promise_creation_origin_queued_notifications_survive_document_open_and_release_collected_promises() {
+            for collected in [false, true] {
+                let mut host = host();
+                dynamic_import_continuation_tests::install_document(&mut host);
+                host.execute("globalThis.openNotification=Promise.reject('open notification');globalThis.openLog=[];").unwrap();
+                assert!(host.take_unhandled_promise_rejections().is_empty());
+                if collected {
+                    host.execute("delete globalThis.openNotification;").unwrap();
+                    host.isolate.low_memory_notification();
+                } else {
+                    host.execute("document.open();addEventListener('unhandledrejection',e=>{e.preventDefault();openLog.push(e.reason);});").unwrap();
+                }
+                {
+                    v8::scope!(let handles, &mut host.isolate);
+                    let context = v8::Local::new(handles, host.contexts.get(&host.active_realm).unwrap());
+                    let scope = &mut v8::ContextScope::new(handles, context);
+                    let state = context.get_slot::<V8BindingState>().unwrap();
+                    state.drain_platform_completions(scope, 64).unwrap();
+                }
+                assert!(host.take_unhandled_promise_rejections().is_empty());
+                assert_eq!(host.evaluate_string("JSON.stringify(openLog)").unwrap(),
+                    if collected { "[]" } else { "[\"open notification\"]" });
+                if collected { assert_eq!(host.isolate.get_slot::<PromiseRejections>().unwrap().len(), 0); }
+            }
         }
 
         #[test]

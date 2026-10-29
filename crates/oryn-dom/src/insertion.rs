@@ -1332,6 +1332,7 @@ impl TreeInsertion {
                     self.phase = 20;
                 }
                 20 => {
+                    dom.reconcile_inserted_details(self.node)?;
                     self.phase = 21;
                 }
                 21 => return Ok(()),

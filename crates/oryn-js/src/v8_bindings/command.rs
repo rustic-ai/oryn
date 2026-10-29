@@ -622,7 +622,7 @@ impl Job {
                 }
                 3 => {
                     let (old, new) = self.toggle.unwrap();
-                    top_layer::queue(&self.owner, self.target, old, new, Some(self.source))?;
+                    top_layer::queue(scope, &self.owner, self.target, old, new, Some(self.source))?;
                     self.toggle = None;
                     self.phase = 9;
                 }

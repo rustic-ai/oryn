@@ -48,20 +48,39 @@ fn mode(state: &V8BindingState, node: NodeId) -> Result<String, V8BindingError> 
         })
 }
 struct ToggleTask {
+    details: bool,
     target: DeferredDomTarget,
     source: Option<DeferredDomTarget>,
-    old: String,
-    new: String,
+    old: &'static str,
+    new: &'static str,
     epoch: u64,
     dispatch: Option<native_platform::publication::Notification>,
 }
 pub(super) fn queue(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     node: NodeId,
     old: &str,
     new: &str,
     source: Option<NodeId>,
 ) -> Result<(), V8BindingError> {
+    queue_with_kind(scope, state, node, old, new, source, false)
+}
+
+fn queue_with_kind(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState, node: NodeId, old: &str, new: &str,
+    source: Option<NodeId>, details: bool,
+) -> Result<(), V8BindingError> {
+    let canonical = |value: &str| match value {
+        "open" => Ok("open"), "closed" => Ok("closed"),
+        _ => Err(V8BindingError::Allocation("invalid native toggle state")),
+    };
+    let old = canonical(old)?;
+    let new = canonical(new)?;
+    let allocation = state.capture_retained_allocation(
+        scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
     let document = state.document_root();
     let target = DeferredDomTarget::new(&state.dom, node, document)?;
     let source = source
@@ -72,31 +91,68 @@ pub(super) fn queue(
         pending.target.node == node
             && pending.target.document == document
             && pending.dispatch.is_none()
+            && pending.details == details
     }) {
-        pending.new = new.into();
+        pending.new = new;
         pending.source = source;
         return Ok(());
     }
     if registry.toggles.len() >= 4096 {
         return Err(V8BindingError::Allocation("toggle task limit"));
     }
-    registry
-        .toggles
-        .try_reserve(1)
-        .map_err(|_| V8BindingError::Allocation("toggle task reserve"))?;
+    let Registry { toggles, toggle_storage, .. } = &mut *registry;
+    reserve_queue_growth(&allocation, toggles, toggle_storage, 1)?;
     let mut tasks = state.deferred_platform_tasks.borrow_mut();
-    tasks
-        .try_reserve(1)
-        .map_err(|_| V8BindingError::Allocation("toggle wake reserve"))?;
+    if tasks.len() >= 4096 {
+        return Err(V8BindingError::Allocation("toggle wake task limit"));
+    }
+    reserve_queue_growth(
+        &allocation, &mut tasks, &mut state.deferred_task_queue_storage.borrow_mut(), 1,
+    )?;
     registry.toggles.push_back(ToggleTask {
+        details,
         target,
         source,
-        old: old.into(),
-        new: new.into(),
-        epoch: state.document_stream_epoch(),
+        old,
+        new,
+        epoch: if details { state.document_authority_epoch() } else { state.document_stream_epoch() },
         dispatch: None,
     });
     tasks.push_back(DeferredPlatformTask::ToggleEvent);
+    Ok(())
+}
+
+/// Independent journal ownership covers reflection, Attr, namespace-aware and
+/// parser mutations without consuming the observer/custom-element cursors.
+pub(super) fn collect_details_mutations(
+    scope: &mut v8::PinScope, state: &Rc<V8BindingState>,
+) -> Result<(), V8BindingError> {
+    if state.execution_retired() { return Ok(()) }
+    loop {
+    let read = state.dom.borrow().next_attribute_presence_change(state.details_toggle_cursor.get(), "open");
+    if read.truncated {
+        return Err(V8BindingError::Allocation("details toggle mutation journal truncated"));
+    }
+        if let Some(change) = read.change {
+            let node = change.node;
+            if state.dom.borrow().is_element(node, "http://www.w3.org/1999/xhtml", "details")
+                && state.dom.borrow().node_document(node)? == Some(state.document_root())
+            {
+                let context = state.global_object.to_local(scope)
+                    .and_then(|global| global.get_creation_context(scope))
+                    .ok_or(V8BindingError::Allocation("details toggle owner context"))?;
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let _allocation = state.enter_retained_allocation(scope)?;
+                queue_with_kind(scope, state, node,
+                    if change.was_present { "open" } else { "closed" },
+                    if change.is_present { "open" } else { "closed" }, None, true)?;
+            }
+        }
+        // A fallible admission leaves this exact change available for retry;
+        // earlier acknowledged changes cannot be replayed after task dispatch.
+        state.details_toggle_cursor.set(read.next);
+        if read.change.is_none() { break }
+    }
     Ok(())
 }
 pub(super) fn dispatch_toggle(
@@ -126,7 +182,7 @@ pub(super) fn dispatch_toggle(
     let _guard = Guard(state);
     let result = (|| -> Result<bool, V8BindingError> {
         if state.execution_retired()
-            || task.epoch != state.document_stream_epoch()
+            || task.epoch != if task.details { state.document_authority_epoch() } else { state.document_stream_epoch() }
             || task.target.document != state.document_root()
             || state
                 .dom
@@ -493,6 +549,7 @@ pub(super) struct Registry {
     retry: Option<Instant>,
     polling: bool,
     toggles: VecDeque<ToggleTask>,
+    toggle_storage: Option<(usize, Arc<dyn Send + Sync>)>,
     toggle_retry: Option<Instant>,
     toggle_dispatching: bool,
 }
@@ -785,6 +842,7 @@ impl PendingToggle {
                 }
                 6 => {
                     queue(
+                        scope,
                         state,
                         self.node,
                         if self.was { "open" } else { "closed" },

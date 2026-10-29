@@ -223,7 +223,7 @@ impl<T> Buffer<T> {
             .map_err(|_| "IDB allocation admission")?;
         Self::allocate_with_lease(layout, len, lease)
     }
-    fn allocate_from_receipt(ledger: &Arc<Ledger>, len: usize, receipt: &HeapReceipt) -> Result<Self, &'static str> {
+    pub(crate) fn allocate_from_receipt(ledger: &Arc<Ledger>, len: usize, receipt: &HeapReceipt) -> Result<Self, &'static str> {
         if std::mem::size_of::<T>() == 0 { return Err("IDB zero-sized payload unsupported"); }
         let layout = Layout::array::<T>(len).map_err(|_| "IDB allocation layout")?;
         let lease = ledger.reserve_from_receipt(layout.size(), receipt).map_err(|_| "IDB allocation admission")?;
@@ -252,6 +252,16 @@ impl<T> Buffer<T> {
         self.values.push(value);
         Ok(())
     }
+
+    pub fn pop(&mut self) -> Option<T> { self.values.pop() }
+
+    pub fn retain(&mut self, predicate: impl FnMut(&T) -> bool) {
+        self.values.retain(predicate);
+    }
+
+    pub fn remove(&mut self, index: usize) -> T { self.values.remove(index) }
+
+    pub fn capacity(&self) -> usize { self.values.capacity() }
 }
 
 pub(crate) struct AdmittedValues<T>{values:std::vec::IntoIter<T>,_lease:Lease}

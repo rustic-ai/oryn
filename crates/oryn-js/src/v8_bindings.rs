@@ -339,6 +339,7 @@ mod iterable_conversion;
 mod media_source;
 mod message_delivery;
 mod message_events;
+mod promise_rejection_events;
 mod message_ports;
 mod offscreen_canvas;
 mod opaque_ranges;
@@ -548,7 +549,8 @@ fn exposed_on_global(
     global: BindingGlobal,
     context: v8::Local<v8::Context>,
 ) -> bool {
-    exposed.contains(&global.webidl_name())
+    exposed.contains(&"*")
+        || exposed.contains(&global.webidl_name())
         || (global == BindingGlobal::Worker
             && context
                 .get_slot::<WorkerExposureKind>()
@@ -1593,6 +1595,13 @@ impl PreparedDynamicScript {
 }
 
 enum DeferredPlatformTask {
+    PromiseRejection {
+        id: u64,
+        callback: PromiseRejectionTaskCallback,
+        document: NodeId,
+        generation: u64,
+        authority_epoch: u64,
+    },
     ScriptError(Box<script_error_task::Task>),
     FileReader(file_reader::ReadTask),
     WebSocketTerminal(websocket_lifecycle::Terminal),
@@ -2797,6 +2806,7 @@ pub struct V8BindingState {
     native_pointers: RefCell<native_pointer::PointerRegistry>,
     interests: RefCell<interest::Registry>,
     popover_publications: RefCell<top_layer::Registry>,
+    details_toggle_cursor: Cell<oryn_dom::MutationCursor>,
     fullscreen: RefCell<fullscreen::Registry>,
     dialogs: RefCell<dialog::Registry>,
     form_submission_jobs: RefCell<submissions::QueueRegistry>,
@@ -2853,6 +2863,7 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    promise_rejection_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     ui_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     click_in_progress: RefCell<BTreeSet<NodeId>>,
     reset_in_progress: RefCell<Vec<Rc<oryn_dom::TrackedNodeLease>>>,
@@ -2944,6 +2955,7 @@ pub struct V8BindingState {
     blocked_idb_completions:
         RefCell<VecDeque<(u64, Arc<owned_action::OwnedAction>, IdbHostResponse)>>,
     deferred_platform_tasks: RefCell<VecDeque<DeferredPlatformTask>>,
+    deferred_task_queue_storage: RefCell<Option<(usize, Arc<dyn Send + Sync>)>>,
     prefer_deferred_platform_tasks: Cell<bool>,
     cancelled_platform_operations: RefCell<BTreeSet<HostOperationId>>,
     platform_listeners: RefCell<PlatformListenerMap>,
@@ -4188,6 +4200,17 @@ impl V8BindingState {
                     continue;
                 }
                 match task {
+                    DeferredPlatformTask::PromiseRejection {
+                        id, callback, document, generation, authority_epoch,
+                    } => {
+                        if !self.execution_tasks_stopped()
+                            && self.document_root() == document
+                            && self.document_generation() == generation
+                            && self.document_authority_epoch() == authority_epoch
+                        {
+                            callback(scope, self, id)?;
+                        }
+                    }
                     DeferredPlatformTask::ScriptError(mut task) => {
                         let result = task.poll(scope, self);
                         if !matches!(&result, Ok(true)) {
@@ -16598,6 +16621,16 @@ fn generated_constructor<'s>(
         }
         return;
     }
+    if name == "PromiseRejectionEvent" {
+        if !args.is_construct_call() {
+            throw_type_error(scope, "PromiseRejectionEvent constructor requires new");
+        } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+            promise_rejection_events::construct(scope, &state, &args);
+        } else {
+            throw_type_error(scope, "generated binding state is unavailable");
+        }
+        return;
+    }
     if name == "ErrorEvent" {
         if !args.is_construct_call() {
             throw_type_error(scope, "ErrorEvent constructor requires new");
@@ -18265,6 +18298,13 @@ fn generated_attribute_getter<'s>(
         match service_worker_events::attribute(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "PromiseRejectionEvent" {
+        match promise_rejection_events::property(scope, args.this(), member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_type_error(scope, &error.to_string()),
         }
         return;
     }
@@ -33424,6 +33464,7 @@ fn collect_slot_notifications(scope: &mut v8::PinScope) -> Result<(), V8BindingE
         *queue.borrow_mut() = refreshed;
     }
     for source in &states {
+        top_layer::collect_details_mutations(scope, source)?;
         loop {
             let Some(node) = source.dom.borrow().pending_slot_change() else {
                 break;
@@ -46617,6 +46658,22 @@ pub fn script_import_options<'s>(
     Ok(options)
 }
 
+/// Native script provenance, including a callback compiled by an opaque classic
+/// script but invoked later by a different caller. Native jobs without script
+/// options have no muted classic-script provenance.
+pub fn current_script_muted_errors(scope: &mut v8::PinScope) -> bool {
+    scope.get_current_host_defined_options()
+        .and_then(|value| value.try_cast::<v8::FixedArray>().ok())
+        .and_then(|options| match options.length() {
+            4 => options.get(scope, 3),
+            1 => options.get(scope, 0),
+            _ => None,
+        })
+        .and_then(|value| value.try_cast::<v8::Value>().ok())
+        .filter(|value| value.is_boolean())
+        .is_some_and(|value| value.boolean_value(scope))
+}
+
 /// Browser-owned classic execution reports script exceptions without converting
 /// them into resource failures. The caller performs the subsequent checkpoint.
 pub fn execute_classic_script<'text>(
@@ -48259,6 +48316,7 @@ fn event_id(
     let matches = [
         &state.event_brand,
         &state.error_event_brand,
+        &state.promise_rejection_event_brand,
         &state.ui_event_brand,
         &state.message_event_brand,
     ]
@@ -48823,6 +48881,54 @@ pub fn dispatch_print_event(
         .is_trusted = true;
     global_events::dispatch(scope, state, event)?;
     Ok(())
+}
+
+/// Dispatch the native payload selected by the host's rejection task lifecycle.
+/// This does not schedule notification or decide script-origin eligibility.
+pub fn dispatch_promise_rejection_event(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    promise: v8::Local<v8::Promise>,
+    reason: v8::Local<v8::Value>,
+    handled: bool,
+) -> Result<bool, V8BindingError> {
+    promise_rejection_events::dispatch(scope, state, promise, reason, handled)
+}
+
+/// Native-only task callback. The host retains payload/origin policy; the
+/// scheduler retains only a bounded token and the captured document authority.
+pub type PromiseRejectionTaskCallback =
+    fn(&mut v8::PinScope, &Rc<V8BindingState>, u64) -> Result<(), V8BindingError>;
+
+impl V8BindingState {
+    pub fn queue_promise_rejection_task(
+        &self,
+        scope: &mut v8::PinScope,
+        id: u64,
+        callback: PromiseRejectionTaskCallback,
+    ) -> Result<(), V8BindingError> {
+        if self.execution_tasks_stopped() {
+            return Err(V8BindingError::Allocation("retired Promise rejection task"));
+        }
+        let allocation = self.capture_retained_allocation(
+            scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )?;
+        let mut queue = self.deferred_platform_tasks.borrow_mut();
+        // Same original deferred-script capacity; no widened limit or spill.
+        if queue.len() >= 4096 {
+            return Err(V8BindingError::Allocation("deferred Promise rejection capacity"));
+        }
+        reserve_queue_growth(
+            &allocation, &mut queue, &mut self.deferred_task_queue_storage.borrow_mut(), 1,
+        )?;
+        queue.push_back(DeferredPlatformTask::PromiseRejection {
+            id, callback,
+            document: self.document_root(),
+            generation: self.document_generation(),
+            authority_epoch: self.document_authority_epoch(),
+        });
+        Ok(())
+    }
 }
 
 fn create_event_object<'s>(
@@ -74602,6 +74708,64 @@ opening.onsuccess = () => {
         }
         isolate.low_memory_notification();
         assert!(weak_data.is_empty() && weak_port.is_empty());
+    }
+
+    #[test]
+    fn promise_rejection_event_preserves_required_payload_and_dispatch_brand() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (()=>{
+            const check=(v,s)=>{if(!v)throw Error(s)};
+            const bad=f=>{try{f()}catch(e){check(e instanceof TypeError,'type');return}throw Error('accepted')};
+            const promise={}, reason={nested:{}};
+            const e=new PromiseRejectionEvent('unhandledrejection',{promise,reason,cancelable:true});
+            check(e instanceof Event && e instanceof PromiseRejectionEvent,'inheritance');
+            check(e.promise===promise && e.reason===reason && !e.isTrusted,'payload');
+            check(!e.bubbles && !e.composed && e.cancelable,'flags');
+            check(new PromiseRejectionEvent('x',{promise}).reason===undefined,'default reason');
+            for(const p of [{},[],()=>{},Promise.resolve(1)])
+              check(new PromiseRejectionEvent('x',{promise:p}).promise===p,'object not Promise brand');
+            for(const r of [undefined,null,42,'x',Symbol(),()=>{}])
+              check(new PromiseRejectionEvent('x',{promise,reason:r}).reason===r,'any reason');
+            bad(()=>PromiseRejectionEvent('x',{promise}));bad(()=>new PromiseRejectionEvent());
+            for(const init of [undefined,null,{},1,true,'x',Symbol()])bad(()=>new PromiseRejectionEvent('x',init));
+            for(const p of [undefined,null,1,true,'x',Symbol()])bad(()=>new PromiseRejectionEvent('x',{promise:p}));
+            const getter=Object.getOwnPropertyDescriptor(PromiseRejectionEvent.prototype,'promise').get;
+            for(const fake of [{},new Event('x'),new ErrorEvent('x'),Object.create(PromiseRejectionEvent.prototype)])bad(()=>getter.call(fake));
+            class Derived extends PromiseRejectionEvent{}
+            check(new Derived('x',{promise}) instanceof Derived,'subclass');
+            const order=[];
+            new PromiseRejectionEvent({toString(){order.push('type');return '\ud800'}},new Proxy({promise},{get(o,k){order.push(k);return o[k]}}));
+            check(order.join(',')==='type,bubbles,cancelable,composed,promise,reason','conversion order');
+            for(const key of ['bubbles','cancelable','composed','promise','reason']){
+              const marker={};try{new PromiseRejectionEvent('x',new Proxy({promise},{get(o,k){if(k===key)throw marker;return o[k]}}));throw Error('no getter failure')}
+              catch(err){check(err===marker,'getter exception')}
+            }
+            let seen;
+            addEventListener('unhandledrejection',event=>{seen=event;event.preventDefault()},{once:true});
+            check(!dispatchEvent(e) && seen===e && e.defaultPrevented,'native dispatch cancellation');
+            Object.setPrototypeOf(e,null);check(getter.call(e)===promise,'brand not prototype');
+            return true;
+          })()
+        "#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
+        let detail = scope.exception()
+            .and_then(|value| value.to_string(scope))
+            .map(|value| value.to_rust_string_lossy(scope));
+        assert!(
+            result.is_some_and(|value| value.is_true()),
+            "{:?}",
+            detail
+        );
     }
 
     #[test]

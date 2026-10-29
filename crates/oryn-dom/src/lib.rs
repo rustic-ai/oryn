@@ -13,6 +13,9 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 mod attributes;
+mod attribute_presence_journal;
+mod details_groups;
+pub use attribute_presence_journal::{AttributePresenceChange, AttributePresenceRead};
 mod processing_instruction;
 pub mod document_refresh;
 pub mod document_url;
@@ -3561,6 +3564,10 @@ impl DomRuntime {
             self.checked_attribute_changed(node, &name)?;
             self.option_attribute_changed(node, &name)?;
         }
+        let details_group_transition = namespace.is_none()
+            && ((key.local_name == "open" && old_value.is_none())
+                || (key.local_name == "name" && old_value.as_deref() != Some(value.as_str())));
+        let details_opening = key.local_name == "open";
         self.record_mutation(Mutation::Attribute {
             node,
             name: key.local_name,
@@ -3568,6 +3575,9 @@ impl DomRuntime {
             old_value,
             new_value: Some(value),
         });
+        if details_group_transition {
+            self.reconcile_details_attribute(node, details_opening)?;
+        }
         Ok(())
     }
 

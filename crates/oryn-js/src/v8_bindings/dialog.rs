@@ -275,6 +275,7 @@ impl Job {
                 }
                 5 => {
                     top_layer::queue(
+                        scope,
                         &self.owner,
                         self.node,
                         if opening { "closed" } else { "open" },
