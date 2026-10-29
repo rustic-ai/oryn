@@ -1,6 +1,36 @@
 //! Native canvas text anchor state, shared by onscreen and offscreen contexts.
 use super::*;
 
+/// Raw WebIDL string conversion, before CSS or Canvas whitespace processing.
+/// The shared UTF-16 converter preserves CR/LF/NUL; only its CSS consumers
+/// subsequently apply CSS Syntax preprocessing. Text consumers must not pass
+/// this value through the font parser. Operations perform ToString and receiver
+/// revalidation before calling this helper with the immutable resulting string.
+/// Check the document/stream again around native allocation preparation.
+pub(super) fn owned_string(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    value: v8::Local<v8::String>,
+) -> Result<font_loading::FontOwnedInput, V8BindingError> {
+    let identity = (
+        state.document_root(),
+        state.document_generation(),
+        state.document_stream_epoch(),
+    );
+    let text = font_loading::font_owned_input(scope, state, value.into())?;
+    if state.execution_tasks_stopped()
+        || identity
+            != (
+                state.document_root(),
+                state.document_generation(),
+                state.document_stream_epoch(),
+            )
+    {
+        return Err(V8BindingError::Message("InvalidStateError".into()));
+    }
+    Ok(text)
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct TextState {
     pub(super) font: Option<Rc<oryn_layout::CanvasFontResolution>>,
@@ -157,7 +187,7 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
     if name == "font" {
         let result = (|| -> Result<(), V8BindingError> {
             let _entry = state.enter_retained_allocation(scope)?;
-            let owned = font_loading::font_owned_input(scope, &state, value.into())?;
+            let owned = owned_string(scope, &state, value)?;
             refresh_layout_in_scope(scope, &state)?;
             let provider = state
                 .native_layout_provider()
@@ -254,6 +284,70 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_canvas_owned_text_preserves_raw_whitespace_and_conversion_reentry() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<canvas></canvas>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"globalThis.conversions=0;({toString(){conversions++;return 'a\r\n\t\f\u0000\u000b\uD800\uD83D\uDD25'}})"#).unwrap();
+        let object = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let converted = object.to_string(scope).unwrap();
+        let text = owned_string(scope, &state, converted).unwrap();
+        assert_eq!(text.value, "a\r\n\t\u{c}\0\u{b}\u{fffd}\u{1f525}");
+        let key = v8::String::new(scope, "conversions").unwrap();
+        assert_eq!(
+            context
+                .global(scope)
+                .get(scope, key.into())
+                .unwrap()
+                .integer_value(scope),
+            Some(1)
+        );
+        drop(text);
+        let source =
+            v8::String::new(scope, "({toString(){throw new Error('text sentinel')}})").unwrap();
+        let object = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        {
+            v8::tc_scope!(let caught, scope);
+            assert!(object.to_string(caught).is_none());
+            assert!(caught.has_caught());
+        }
+        fn replace_stream(
+            scope: &mut v8::PinScope,
+            _: v8::FunctionCallbackArguments,
+            mut rv: v8::ReturnValue,
+        ) {
+            let state = scope
+                .get_current_context()
+                .get_slot::<V8BindingState>()
+                .unwrap();
+            state.advance_document_stream_epoch().unwrap();
+            rv.set(v8::String::new(scope, "replacement text").unwrap().into());
+        }
+        let object = v8::Object::new(scope);
+        let key = v8::String::new(scope, "toString").unwrap();
+        let callback = v8::Function::new(scope, replace_stream).unwrap();
+        object.set(scope, key.into(), callback.into());
+        let epoch = state.document_stream_epoch();
+        let converted = object.to_string(scope).unwrap();
+        assert_ne!(state.document_stream_epoch(), epoch);
+        assert_eq!(
+            owned_string(scope, &state, converted).unwrap().value,
+            "replacement text"
+        );
+    }
     #[test]
     fn native_canvas_text_state_obeys_conversion_brand_and_save_restore() {
         super::super::tests::initialize_v8();
