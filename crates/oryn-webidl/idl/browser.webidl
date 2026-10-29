@@ -1521,6 +1521,12 @@ interface CustomStateSet {
 
 [Exposed=Window]
 interface HTMLTemplateElement : HTMLElement {
+  [CEReactions] attribute DOMString shadowRootMode;
+  [CEReactions] attribute DOMString shadowRootSlotAssignment;
+  [CEReactions, Reflect] attribute boolean shadowRootDelegatesFocus;
+  [CEReactions, Reflect] attribute boolean shadowRootClonable;
+  [CEReactions, Reflect] attribute boolean shadowRootSerializable;
+  [CEReactions, Reflect] attribute DOMString shadowRootCustomElementRegistry;
   [CEReactions, Reflect] attribute boolean buffer;
   [CEReactions, Reflect=shadowrootadoptedstylesheets] attribute DOMString shadowRootAdoptedStyleSheets;
   readonly attribute DocumentFragment content;

@@ -2734,7 +2734,7 @@ impl TreeSink for OrynTreeSink {
         if attribute("for").is_some() {
             return false;
         }
-        let mode = match attribute("shadowrootmode").as_deref() {
+        let mode = match attribute("shadowrootmode").map(|value| value.to_ascii_lowercase()).as_deref() {
             Some("open") => crate::ShadowMode::Open,
             Some("closed") => crate::ShadowMode::Closed,
             _ => return false,
@@ -2780,6 +2780,8 @@ impl TreeSink for OrynTreeSink {
                 record.custom_element_registry_keep_null = true;
             }
             record.delegates_focus = attribute("shadowrootdelegatesfocus").is_some();
+            record.manual_slot_assignment = attribute("shadowrootslotassignment")
+                .is_some_and(|value| value.eq_ignore_ascii_case("manual"));
             record.shadow_reference_target = attribute("shadowrootreferencetarget");
         }
         dom.append_child(host, root)

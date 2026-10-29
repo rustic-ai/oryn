@@ -1551,7 +1551,8 @@ where
         // template start tag's shadowrootmode is not in the none state
         let is_shadow_root_mode = tag.attrs.iter().any(|attr| {
             attr.name.local == local_name!("shadowrootmode")
-                && (attr.value.as_ref() == "open" || attr.value.as_ref() == "closed")
+                && (attr.value.as_ref().eq_ignore_ascii_case("open")
+                    || attr.value.as_ref().eq_ignore_ascii_case("closed"))
         });
 
         // Check if intended_parent's document allows declarative shadow roots

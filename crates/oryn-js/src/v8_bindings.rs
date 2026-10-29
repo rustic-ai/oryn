@@ -34888,6 +34888,53 @@ mod reflected_long_tests {
     }
 
     #[test]
+    fn template_shadow_properties_reflect_and_drive_native_parser() {
+        use super::*;
+        super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<!doctype html><html><body></body></html>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const eq=(a,b,label)=>{if(a!==b)throw Error(label)};
+            const node=document.createElement('template');
+            for(const [member,attribute,keywords] of [
+                ['shadowRootMode','shadowrootmode',['open','closed']],
+                ['shadowRootSlotAssignment','shadowrootslotassignment',['named','manual']]]) {
+                eq(node[member],'','missing enum');
+                for(const raw of ['', 'invalid', ' open ', ...keywords, ...keywords.map(x=>x.toUpperCase())]) {
+                    node[member]=raw;eq(node.getAttribute(attribute),raw,'raw setter');
+                    eq(node[member],keywords.includes(raw.toLowerCase())?raw.toLowerCase():'','known values');
+                }
+                node[member]='\ud800';eq(node.getAttribute(attribute),'\ud800','lossless setter');
+                const descriptor=Object.getOwnPropertyDescriptor(HTMLTemplateElement.prototype,member);
+                let rejected=false;try{descriptor.get.call({})}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'getter brand');
+            }
+            for(const member of ['shadowRootDelegatesFocus','shadowRootClonable','shadowRootSerializable']) {
+                const attribute=member.toLowerCase();eq(node[member],false,'missing boolean');
+                node.setAttribute(attribute,'false');eq(node[member],true,'boolean presence');
+                node[member]=false;eq(node.hasAttribute(attribute),false,'remove boolean');
+                node[member]={};eq(node.getAttribute(attribute),'','boolean conversion');
+            }
+            node.shadowRootCustomElementRegistry='\ud800';
+            eq(node.getAttribute('shadowrootcustomelementregistry'),'\ud800','registry string');
+            const host=document.createElement('div');document.body.append(host);
+            host.setHTMLUnsafe('<template shadowrootmode="OPEN" shadowrootslotassignment="MANUAL" shadowrootdelegatesfocus shadowrootclonable shadowrootserializable><slot></slot></template><span>light</span>');
+            const root=host.shadowRoot;eq(root.mode,'open','parser mode');
+            eq(root.slotAssignment,'manual','parser manual');eq(root.delegatesFocus,true,'parser focus');
+            eq(root.clonable,true,'parser clonable');eq(root.serializable,true,'parser serializable');
+            const slot=root.querySelector('slot');eq(slot.assignedNodes().length,0,'no named auto assignment');
+            slot.assign(host.firstElementChild);eq(slot.assignedNodes()[0],host.firstElementChild,'actual manual assignment');
+            return true;
+        })()"#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
+    }
+
+    #[test]
     fn generated_reflection_uses_native_attributes_and_validates_receiver() {
         use super::*;
         super::tests::initialize_v8();
@@ -37463,6 +37510,16 @@ fn get_attribute_value<'s>(
             };
             v8::Integer::new(scope, dom.parsed_tab_index(node)?.unwrap_or(default)).into()
         }
+        ("HTMLTemplateElement", "shadowRootMode" | "shadowRootSlotAssignment") => {
+            let (attribute, keywords) = if member == "shadowRootMode" {
+                ("shadowrootmode", ["open", "closed"])
+            } else {
+                ("shadowrootslotassignment", ["named", "manual"])
+            };
+            let raw = record.attributes.get_null(attribute).map_or("", String::as_str);
+            let value = keywords.into_iter().find(|keyword| raw.eq_ignore_ascii_case(keyword)).unwrap_or("");
+            v8_string(scope, value)?
+        }
         ("HTMLTemplateElement", "buffer") => {
             v8::Boolean::new(scope, record.attributes.get_null("buffer").is_some()).into()
         }
@@ -38455,7 +38512,7 @@ fn set_attribute_value<'s>(
             .set_option_selected(node, value.boolean_value(scope))?;
         return Ok(());
     }
-    if interface == "HTMLTemplateElement" && member == "shadowRootAdoptedStyleSheets" {
+    if interface == "HTMLTemplateElement" && matches!(member, "shadowRootAdoptedStyleSheets" | "shadowRootMode" | "shadowRootSlotAssignment") {
         let receiver = wrap_node(scope, state, node)?;
         let value = value
             .to_string(scope)
@@ -38466,7 +38523,11 @@ fn set_attribute_value<'s>(
         owner.dom.borrow_mut().set_attribute_ns(
             node,
             None,
-            "shadowrootadoptedstylesheets",
+            match member {
+                "shadowRootMode" => "shadowrootmode",
+                "shadowRootSlotAssignment" => "shadowrootslotassignment",
+                _ => "shadowrootadoptedstylesheets",
+            },
             value,
         )?;
         return Ok(());
