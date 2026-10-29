@@ -34997,6 +34997,27 @@ mod reflected_long_tests {
                 eq(element.autocorrect,!inherits,'explicit correction inheritance '+tag);
                 element.remove();
             }
+            const correctionForm=document.createElement('form'),correctionInput=document.createElement('input');
+            correctionForm.append(correctionInput);
+            for(const type of ['password','URL','email']) {
+                correctionInput.type=type;
+                for(const raw of [null,'on','ON','off','','invalid']) {
+                    if(raw===null) correctionInput.removeAttribute('autocorrect');
+                    else correctionInput.setAttribute('autocorrect',raw);
+                    for(const enabled of [true,false]) {
+                        correctionForm.autocorrect=enabled;
+                        eq(correctionInput.autocorrect,false,'correction excluded input '+type+' '+raw);
+                    }
+                }
+                correctionInput.autocorrect=true;
+                eq(correctionInput.getAttribute('autocorrect'),'on','excluded input retains preference');
+                eq(correctionInput.autocorrect,false,'excluded input setter cannot enable correction');
+                correctionInput.type='text';
+                eq(correctionInput.autocorrect,true,'type change restores explicit preference');
+            }
+            correctionInput.removeAttribute('autocorrect');correctionForm.autocorrect=false;
+            correctionInput.type='invalid';eq(correctionInput.autocorrect,false,'invalid type inherits correction preference');
+            correctionForm.autocorrect=true;eq(correctionInput.autocorrect,true,'invalid type uses text state');
             const writingParent=document.createElement('div'),writingChild=document.createElement('span');writingParent.append(writingChild);
             eq(writingChild.writingSuggestions,'true','writing default');writingParent.writingSuggestions='FaLsE';
             eq(writingChild.writingSuggestions,'false','writing inheritance');eq(writingParent.getAttribute('writingsuggestions'),'FaLsE','writing raw');
@@ -35380,6 +35401,14 @@ fn get_attribute_value<'s>(
     }
     if interface == "HTMLElement" && matches!(member, "autocapitalize" | "autocorrect") {
         let dom = state.dom.borrow();
+        // These input states disable correction regardless of an explicit or
+        // inherited preference. Invalid type values still use the text state.
+        if member == "autocorrect"
+            && interface_for_node(&dom.arena().get(node)?.kind) == "HTMLInputElement"
+            && matches!(dom.effective_input_type(node)?.as_str(), "password" | "url" | "email")
+        {
+            return Ok(v8::Boolean::new(scope, false).into());
+        }
         let mut value = dom.attribute_in_null_namespace(node, member)?;
         let inherit = value.is_none() || (member == "autocapitalize" && value == Some(""));
         if inherit && matches!(interface_for_node(&dom.arena().get(node)?.kind),
