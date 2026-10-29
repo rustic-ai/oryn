@@ -2259,6 +2259,8 @@ interface HTMLAreaElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLLinkElement : HTMLElement {
+  [CEReactions, Reflect] attribute USVString imageSrcset;
+  [CEReactions, Reflect] attribute DOMString imageSizes;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList blocking;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList sizes;

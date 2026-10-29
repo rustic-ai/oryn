@@ -18414,13 +18414,18 @@ fn generated_attribute_getter<'s>(
         } else if interface.starts_with("HTML")
             && interface != "HTMLGeolocationElement"
             && let Some(attribute) = metadata.reflect_attribute
-            && matches!(metadata.type_name, Some("DOMString" | "boolean"))
+            && matches!(metadata.type_name, Some("DOMString" | "USVString" | "boolean"))
         {
             let value = state.dom.borrow().attribute_in_null_namespace(node, attribute)?.map(str::to_owned);
             if metadata.type_name == Some("boolean") {
                 Ok(v8::Boolean::new(scope, value.is_some()).into())
             } else {
-                v8_string(scope, value.as_deref().unwrap_or(""))
+                let value = value.as_deref().unwrap_or("");
+                if metadata.type_name == Some("USVString") {
+                    v8_string(scope, &oryn_dom::dom_string::usv(value))
+                } else {
+                    v8_string(scope, value)
+                }
             }
         } else {
             get_attribute_value(scope, &state, node, interface, member)
@@ -18969,7 +18974,7 @@ fn generated_attribute_setter_impl<'s>(
         } else if interface.starts_with("HTML")
             && interface != "HTMLGeolocationElement"
             && let Some(attribute) = metadata.reflect_attribute
-            && matches!(metadata.type_name, Some("DOMString" | "boolean"))
+            && matches!(metadata.type_name, Some("DOMString" | "USVString" | "boolean"))
         {
             let value = args.get(0);
             if metadata.type_name == Some("boolean") {
@@ -18984,7 +18989,11 @@ fn generated_attribute_setter_impl<'s>(
                     String::new()
                 } else {
                     let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
-                    rust_string_preserving_utf16(scope, string)?
+                    if metadata.type_name == Some("USVString") {
+                        string.to_rust_string_lossy(scope)
+                    } else {
+                        rust_string_preserving_utf16(scope, string)?
+                    }
                 };
                 // Conversion can execute author code and adopt the receiver.
                 // Resolve its current owner again before mutating native state.

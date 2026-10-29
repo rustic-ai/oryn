@@ -3,6 +3,7 @@ use super::*;
 #[derive(Default)]
 pub(super) struct State {
     cursor: Option<u64>,
+    environment: Option<(u64, u64, u64)>,
     next: u64,
     entries: BTreeMap<NodeId, Entry>,
 }
@@ -29,9 +30,15 @@ pub(super) struct Pending {
     stream: Option<u64>,
     bytes: Vec<u8>,
 }
+fn environment(state: &V8BindingState) -> (u64, u64, u64) {
+    let viewport = state.layout.borrow().viewport.unwrap_or((1280., 720.));
+    let dpr = state.layout_provider.borrow().as_ref().map_or(1., |p| p.native_device_pixel_ratio());
+    (viewport.0.to_bits(), viewport.1.to_bits(), dpr.to_bits())
+}
 pub(super) fn ready(state: &V8BindingState) -> bool {
     !state.document_load_stopped()
         && (state.preload_resources.borrow().cursor != Some(state.dom.borrow().mutation_cursor().0)
+            || state.preload_resources.borrow().environment != Some(environment(state))
             || state
                 .preload_resources
                 .borrow()
@@ -51,7 +58,7 @@ fn current(state: &V8BindingState, p: &Pending) -> bool {
             .get(&p.node)
             .is_some_and(|e| e.token == p.token)
 }
-fn selected(state: &V8BindingState) -> Result<BTreeMap<NodeId, Key>, V8BindingError> {
+fn selected(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<BTreeMap<NodeId, Key>, V8BindingError> {
     let dom = state.dom.borrow();
     let mut wanted = BTreeMap::new();
     for node in dom.arena().descendants_inclusive(state.document_root())? {
@@ -82,13 +89,26 @@ fn selected(state: &V8BindingState) -> Result<BTreeMap<NodeId, Key>, V8BindingEr
         {
             continue;
         }
-        let Some(href) = dom
+        let href = dom
             .attribute_in_null_namespace(node, "href")?
-            .filter(|s| !s.is_empty())
-        else {
-            continue;
+            .filter(|s| !s.is_empty());
+        let source = if prefetch {
+            href.map(str::to_owned)
+        } else {
+            let candidates = responsive_images::parse(dom.attribute_in_null_namespace(node, "imagesrcset")?.unwrap_or(""));
+            let sizes = dom.attribute_in_null_namespace(node, "imagesizes")?.unwrap_or("");
+            let provider = state.layout_provider.borrow().clone();
+            let dpr = provider.as_ref().map_or(1., |p| p.native_device_pixel_ratio());
+            let base = state.native_document_base_url(false)?;
+            let size = {
+                let _retained = state.enter_retained_allocation(scope)?;
+                provider.as_ref().and_then(|p| p.native_image_source_size(sizes, &base, None).ok())
+                    .unwrap_or_else(|| state.layout.borrow().viewport.unwrap_or((1280.,720.)).0)
+            };
+            responsive_images::select(candidates, href, size, dpr).map(|(url,_)| url)
         };
-        let Ok(url) = state.native_document_resource_url(href) else {
+        let Some(source) = source else { continue; };
+        let Ok(url) = state.native_document_resource_url(&source) else {
             continue;
         };
         let url = url.to_string();
@@ -172,7 +192,7 @@ pub(super) fn poll(
         return Ok(0);
     }
     let cursor = state.dom.borrow().mutation_cursor().0;
-    let wanted = selected(state)?;
+    let wanted = selected(scope, state)?;
     let removed = state
         .preload_resources
         .borrow()
@@ -260,6 +280,7 @@ pub(super) fn poll(
         }
     }
     state.preload_resources.borrow_mut().cursor = Some(cursor);
+    state.preload_resources.borrow_mut().environment = Some(environment(state));
     let ready = state
         .preload_resources
         .borrow()
@@ -272,7 +293,7 @@ pub(super) fn poll(
         if state.execution_retired() || state.execution_suspended() {
             break;
         }
-        let selected = selected(state)?;
+        let selected = selected(scope, state)?;
         let valid = state
             .preload_resources
             .borrow()
@@ -669,6 +690,49 @@ mod tests {
             ]
         );
         assert!(!host.cancelled.borrow().is_empty());
+    }
+    #[test]
+    fn responsive_link_preloads_select_native_candidates_and_cancel_on_reselection() {
+        struct Provider(Cell<f64>);
+        impl BindingLayoutProvider for Provider {
+            fn compute_layout(&self, _: &BTreeMap<NodeId, BTreeSet<String>>) -> Result<BindingLayout, String> {
+                Ok(BindingLayout::default())
+            }
+            fn native_device_pixel_ratio(&self) -> f64 { self.0.get() }
+            fn native_image_source_size(&self, sizes: &str, _: &str, auto: Option<f64>) -> Result<f64, String> {
+                assert!(auto.is_none(), "link cannot use rendered auto width");
+                Ok(if sizes == "200px" { 200. } else { 100. })
+            }
+        }
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<link id=p rel=preload as=image imagesrcset='small.png 100w, large.png 200w' imagesizes=100px>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/page").unwrap();
+        let provider = Rc::new(Provider(Cell::new(1.)));
+        state.set_layout_provider(provider.clone());
+        let host = Rc::new(Host::default());state.set_platform_host(host.clone());
+        poll(scope, &state).unwrap();
+        provider.0.set(2.);assert!(ready(&state));poll(scope, &state).unwrap();
+        provider.0.set(1.);
+        let node = dom.borrow().find_by_id("p").unwrap();
+        dom.borrow_mut().set_attribute(node, "imagesizes", "200px").unwrap();
+        poll(scope, &state).unwrap();
+        let urls = host.requests.borrow().iter().filter_map(|(_,r)| {
+            if let PlatformHostRequest::ImagePreloadStart {request,..}=r {Some(request.url.clone())} else {None}
+        }).collect::<Vec<_>>();
+        assert_eq!(urls, ["https://example.test/small.png", "https://example.test/large.png"]);
+        assert!(!host.cancelled.borrow().is_empty());
+        assert!(super::super::test_eval::eval(scope, r#"(()=>{
+            const link=document.getElementById('p');
+            link.imageSrcset='\ud800';if(link.getAttribute('imagesrcset')!=='\ufffd'||link.imageSrcset!=='\ufffd')return false;
+            link.setAttribute('imagesrcset','\ud800');if(link.imageSrcset!=='\ufffd')return false;
+            link.imageSizes='\ud800';if(link.imageSizes!=='\ud800'||link.getAttribute('imagesizes')!=='\ud800')return false;
+            return true;
+        })()"#).is_true());
     }
     #[test]
     fn image_preloads_publish_real_error_tasks_and_resource_timing_entries() {
