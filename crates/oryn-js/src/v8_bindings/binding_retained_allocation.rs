@@ -219,6 +219,27 @@ impl AsRef<str> for BindingRetainedText {
 }
 impl oryn_common::owned_stylesheet_text::OwnedStylesheetText for BindingRetainedText {}
 impl V8BindingState {
+    /// Generated DOM dispatch remains usable after its document loses execution
+    /// services. Do not refresh or publish native admission for a cancelled
+    /// owner: native consumers must still enter_retained_allocation themselves.
+    fn enter_retained_dom_allocation(
+        &self,
+        scope: &mut v8::PinScope,
+    ) -> Result<Option<BindingRetainedAllocationScope>, V8BindingError> {
+        let allocation = self.retained_allocation.try_borrow()
+            .map_err(|_| V8BindingError::Allocation("retained DOM receipt entry borrow"))?
+            .as_ref().cloned();
+        if let Some(allocation) = allocation {
+            if allocation.owner_cancelled() {
+                allocation.invalidate().map_err(V8BindingError::EventCallback)?;
+                return Ok(None);
+            }
+            allocation.refresh(scope)?;
+            Ok(Some(allocation.scope_guard()))
+        } else {
+            Ok(None)
+        }
+    }
     pub fn install_retained_allocation_with(
         &self,
         allocation: std::sync::Arc<BindingRetainedAllocation>,
@@ -347,8 +368,13 @@ mod nested_retained_scope_controls {
         state.control_tasks_retired.set(true);
         assert!(old_work());
         assert!(allocation.reserve(8).is_err());
+        assert!(state.enter_retained_dom_allocation(scope).unwrap().is_none(),
+            "retained DOM dispatch must not require execution authority");
+        assert!(state.enter_retained_allocation(scope).is_err());
+        assert!(allocation.reserve(8).is_err(), "DOM entry must not revive native admission");
         state.control_tasks_retired.set(false);
         assert!(old_work(), "replacement cannot revive captured work");
+        let _replacement = state.enter_retained_allocation(scope).unwrap();
         assert!(allocation.reserve(8).is_ok(), "replacement preserves the reused accounting ledger");
         assert!(!allocation.capture_cancellation().unwrap()());
         retired.store(true, std::sync::atomic::Ordering::Release);

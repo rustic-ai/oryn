@@ -17587,7 +17587,7 @@ fn generated_attribute_getter<'s>(
                     Err(error) => return Err(error),
                 }
             }
-            let _retained_scope = state.enter_retained_allocation(scope)?;
+            let _retained_scope = state.enter_retained_dom_allocation(scope)?;
             history_document_object(scope, &state)
         })();
         match result { Ok(object) => return_value.set(object.into()), Err(error) => throw_binding_error(scope, &error) }
@@ -17696,7 +17696,7 @@ fn generated_attribute_getter<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
-    let _retained_scope = match state.enter_retained_allocation(scope) {
+    let _retained_scope = match state.enter_retained_dom_allocation(scope) {
         Ok(scope) => scope,
         Err(error) => {
             throw_binding_error(scope, &error);
@@ -18536,7 +18536,7 @@ fn generated_attribute_setter_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
-    let _retained_scope = match state.enter_retained_allocation(scope) {
+    let _retained_scope = match state.enter_retained_dom_allocation(scope) {
         Ok(scope) => scope,
         Err(error) => {
             throw_binding_error(scope, &error);
@@ -19236,7 +19236,7 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
-    let _retained_scope = match state.enter_retained_allocation(scope) {
+    let _retained_scope = match state.enter_retained_dom_allocation(scope) {
         Ok(scope) => scope,
         Err(error) => {
             throw_binding_error(scope, &error);
