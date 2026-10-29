@@ -20418,6 +20418,11 @@ mod tests {
             ctx.letterSpacing='1em';check(Math.abs(ctx.measureText('Hello World').width-base-110)<.01,'default font em');
             ctx.font='20px serif';const spaced=ctx.measureText('Hello World').width;ctx.letterSpacing='0px';
             check(Math.abs(spaced-ctx.measureText('Hello World').width-220)<.01,'font change resolves retained em');
+            const metricBase=ctx.measureText('abc').width, zero=ctx.measureText('0').width;
+            ctx.letterSpacing='1ch';check(Math.abs(ctx.measureText('abc').width-metricBase-zero*3)<.01,'ch uses native zero glyph');
+            ctx.letterSpacing='1ex';const exDelta=ctx.measureText('abc').width-metricBase;check(exDelta>0,'ex uses native x height');
+            ctx.letterSpacing='calc(2ex + 2px)';check(Math.abs(ctx.measureText('abc').width-metricBase-exDelta*2-6)<.01,'nested native font metric calc');
+            ctx.letterSpacing='0px';
             const normal=ctx.measureText('a  b').width;ctx.wordSpacing='1em';check(Math.abs(ctx.measureText('a  b').width-normal-40)<.01,'native word spacing');
             ctx.letterSpacing='-1px';ctx.save();ctx.letterSpacing='7px';ctx.wordSpacing='9px';ctx.restore();
             check(ctx.letterSpacing==='-1px'&&ctx.wordSpacing==='1em','spacing save restore');

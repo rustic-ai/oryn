@@ -362,9 +362,29 @@ impl LengthContext {
     }
 }
 
+/// Used font metrics supplied by the native face selector, not em estimates.
+#[derive(Clone, Copy)]
+pub struct FontMetricLengths {
+    pub x_height: f64,
+    pub zero_advance: f64,
+    pub ideographic_advance: f64,
+    pub cap_height: f64,
+}
+impl FontMetricLengths {
+    fn factor(self, unit: &str) -> Option<f64> {
+        let value = match unit {
+            "ex" => self.x_height, "ch" => self.zero_advance,
+            "ic" => self.ideographic_advance, "cap" => self.cap_height,
+            _ => return None,
+        };
+        (value.is_finite() && value >= 0.).then_some(value)
+    }
+}
+
 fn resolve_relative_tokens<'i>(
     parser: &mut Parser<'i, '_>,
     context: Option<LengthContext>,
+    metrics: Option<FontMetricLengths>,
     depth: usize,
 ) -> Result<'i, String> {
     if depth > 32 {
@@ -389,6 +409,7 @@ fn resolve_relative_tokens<'i>(
             Token::Dimension { value, unit, .. }
                 if context
                     .and_then(|c| c.factor(&unit.to_ascii_lowercase()))
+                    .or_else(|| metrics.and_then(|m| m.factor(&unit.to_ascii_lowercase())))
                     .is_some() =>
             {
                 let number = raw
@@ -400,17 +421,18 @@ fn resolve_relative_tokens<'i>(
                     number
                         * context
                             .and_then(|c| c.factor(&unit.to_ascii_lowercase()))
+                            .or_else(|| metrics.and_then(|m| m.factor(&unit.to_ascii_lowercase())))
                             .unwrap()
                 )
             }
             Token::Function(name) => {
                 let body = parser
-                    .parse_nested_block(|p| resolve_relative_tokens(p, context, depth + 1))?;
+                    .parse_nested_block(|p| resolve_relative_tokens(p, context, metrics, depth + 1))?;
                 format!("{name}({body})")
             }
             Token::ParenthesisBlock => {
                 let body = parser
-                    .parse_nested_block(|p| resolve_relative_tokens(p, context, depth + 1))?;
+                    .parse_nested_block(|p| resolve_relative_tokens(p, context, metrics, depth + 1))?;
                 format!("({body})")
             }
             _ => raw.to_owned(),
@@ -423,9 +445,12 @@ fn resolve_relative_tokens<'i>(
 /// Returns a finite used length, rejecting expressions with another final type.
 /// Font-metric units require additional metrics and are deliberately unresolved.
 pub fn resolve_length(text: &str, context: LengthContext) -> Option<f64> {
+    resolve_length_with_font_metrics(text, context, None)
+}
+pub fn resolve_length_with_font_metrics(text: &str, context: LengthContext, metrics: Option<FontMetricLengths>) -> Option<f64> {
     let mut input = cssparser::ParserInput::new(text);
     let normalized =
-        resolve_relative_tokens(&mut Parser::new(&mut input), Some(context), 0).ok()?;
+        resolve_relative_tokens(&mut Parser::new(&mut input), Some(context), metrics, 0).ok()?;
     let value = complete_value(&normalized)?;
     (value.number.is_finite()
         && (value.unit == Unit::LENGTH || value.unit == Unit::NUMBER && value.number == 0.))
@@ -436,7 +461,7 @@ pub fn resolve_length(text: &str, context: LengthContext) -> Option<f64> {
 /// This percentage hint is for scale factors, not matrix coefficients or axes.
 pub fn resolve_scale(text: &str) -> Option<f64> {
     let mut input = cssparser::ParserInput::new(text);
-    let normalized = resolve_relative_tokens(&mut Parser::new(&mut input), None, 0).ok()?;
+    let normalized = resolve_relative_tokens(&mut Parser::new(&mut input), None, None, 0).ok()?;
     resolve_number(&normalized)
 }
 
@@ -537,6 +562,17 @@ pub fn resolve_position(text: &str, x: LengthContext, y: LengthContext) -> Optio
 #[cfg(test)]
 mod length_tests {
     use super::*;
+    #[test]
+    fn font_metric_lengths_are_explicit_and_preserve_typed_nested_math() {
+        let context = LengthContext { percentage_basis: 100., font_size: 20., root_font_size: 16., viewport_width: 800., viewport_height: 600. };
+        let metrics = FontMetricLengths { x_height: 11., zero_advance: 12., ideographic_advance: 21., cap_height: 15. };
+        assert_eq!(resolve_length("1ex", context), None);
+        for (input, expected) in [("2ex",22.),("1ch",12.),("-1ic",-21.),("1cap",15.),("calc(1em + min(2ex, 1ch))",32.)] {
+            assert_eq!(resolve_length_with_font_metrics(input, context, Some(metrics)), Some(expected));
+        }
+        assert_eq!(resolve_length_with_font_metrics("calc(1ex + 1deg)", context, Some(metrics)), None);
+        assert_eq!(resolve_length_with_font_metrics("1ex", context, Some(FontMetricLengths { x_height: f64::NAN, ..metrics })), None);
+    }
     #[test]
     fn contextual_math_resolves_percentages_and_relative_units() {
         let context = LengthContext {

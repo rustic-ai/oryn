@@ -13,6 +13,25 @@ pub struct MetricFont {
 }
 
 impl MetricFont {
+    /// CSS font-relative units use the selected face at its variation location.
+    /// Missing zero/ideograph glyphs use the CSS .5em/1em fallbacks.
+    pub fn spacing_metrics(&self) -> Result<oryn_common::css_math::FontMetricLengths, LayoutError> {
+        let face = FontRef::from_index(&self.source.bytes, self.source.collection_index)
+            .map_err(|error| LayoutError::InvalidRenderedTree(error.to_string()))?;
+        let coords = self.normalized_coords.iter().map(|value| NormalizedCoord::from_bits(*value)).collect::<Vec<_>>();
+        let glyphs = face.glyph_metrics(Size::new(self.font_size as f32), LocationRef::new(&coords));
+        let advance = |ch| face.charmap().map(ch).and_then(|id| glyphs.advance_width(id)).map(f64::from);
+        let values = oryn_common::css_math::FontMetricLengths {
+            x_height: self.metrics.x_height.map(f64::from).filter(|value| *value > 0.).unwrap_or(self.em_size * 0.5),
+            zero_advance: advance('0').unwrap_or(self.em_size * 0.5),
+            ideographic_advance: advance('\u{6c34}').unwrap_or(self.em_size),
+            cap_height: self.metrics.cap_height.map(f64::from).filter(|value| *value > 0.).unwrap_or(f64::from(self.metrics.ascent)),
+        };
+        if [values.x_height, values.zero_advance, values.ideographic_advance, values.cap_height].iter().any(|value| !value.is_finite() || *value < 0.) {
+            return Err(LayoutError::InvalidRenderedTree("invalid Canvas spacing font metrics".into()));
+        }
+        Ok(values)
+    }
     /// CSS Inline em-box normalization and native BASE anchors. Missing
     /// hanging baseline uses the specification's suggested .6em fallback.
     pub fn baseline_positions(

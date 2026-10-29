@@ -321,6 +321,16 @@ fn shape_with_font_byte_admission(
     engine.cancelled = cancelled.clone();
     super::layout_checkpoint(&cancelled)?;
     let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
+    let spacing_metrics = first_available_font.spacing_metrics()?;
+    for property in ["letter-spacing", "word-spacing"] {
+        if let Some(value) = style.get(property).filter(|value| value.as_str() != "normal") {
+            let resolved = oryn_common::css_math::resolve_length_with_font_metrics(value,
+                oryn_common::css_math::LengthContext { percentage_basis: font_size, font_size,
+                    root_font_size: 16., viewport_width: viewport.width, viewport_height: viewport.height }, Some(spacing_metrics))
+                .ok_or_else(|| LayoutError::InvalidRenderedTree("unresolved Canvas spacing length".into()))?;
+            style.insert(property.into(), format!("{resolved}px"));
+        }
+    }
     super::layout_checkpoint(&cancelled)?;
     let shaped = engine.shape_styled(text, 1_000_000_000., font_size, &style, viewport);
     super::layout_checkpoint(&cancelled)?;
@@ -367,6 +377,25 @@ fn shape_with_font_byte_admission(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canvas_font_metric_spacing_uses_selected_face_and_nested_math() {
+        let shape = |spacing: &str, size: &str| super::shape("abc", &std::collections::BTreeMap::from([
+            ("font-size".into(), size.into()), ("letter-spacing".into(), spacing.into()),
+        ]), oryn_common::v4::ViewportState::default(), &[]).unwrap();
+        for size in ["10px", "20px"] {
+            let base = shape("0px", size);
+            let metrics = base.first_available_font.spacing_metrics().unwrap();
+            for (unit, value) in [("ex", metrics.x_height), ("ch", metrics.zero_advance), ("ic", metrics.ideographic_advance), ("cap", metrics.cap_height)] {
+                let spaced = shape(&format!("1{unit}"), size);
+                assert!((spaced.width - base.width - value * 3.).abs() < 0.01, "{size} {unit}");
+                assert_ne!(spaced.glyph_runs, base.glyph_runs);
+            }
+            let calc = shape("calc(2ex + min(1ch, 3px))", size);
+            assert!((calc.width - base.width - (2. * metrics.x_height + metrics.zero_advance.min(3.)) * 3.).abs() < 0.01);
+        }
+        let cancelled = std::sync::Arc::new(|| true);
+        assert!(matches!(super::shape_controlled("abc", &std::collections::BTreeMap::from([("letter-spacing".into(), "1ex".into())]), oryn_common::v4::ViewportState::default(), &[], Some(cancelled)), Err(super::LayoutError::Cancelled)));
+    }
     #[test]
     fn canvas_spacing_uses_native_glyph_advances_and_current_font_size() {
         let measure = |text: &str, font: &str, letter: &str, word: &str| {
