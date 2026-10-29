@@ -367,6 +367,30 @@ fn shape_with_font_byte_admission(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canvas_spacing_uses_native_glyph_advances_and_current_font_size() {
+        let measure = |text: &str, font: &str, letter: &str, word: &str| {
+            super::shape(text, &std::collections::BTreeMap::from([
+                ("font-size".into(), font.into()),
+                ("letter-spacing".into(), letter.into()),
+                ("word-spacing".into(), word.into()),
+            ]), oryn_common::v4::ViewportState::default(), &[]).unwrap()
+        };
+        for font in ["10px", "20px"] {
+            let base = measure("Hello World", font, "0px", "0px");
+            for (value, delta) in [("3px", 33.), ("-2px", -22.), ("1in", 1056.)] {
+                let spaced = measure("Hello World", font, value, "0px");
+                assert!((spaced.width - base.width - delta).abs() < 0.01, "{font} {value}: {} vs {}", spaced.width, base.width);
+                assert_ne!(spaced.glyph_runs, base.glyph_runs, "spacing must move real glyphs");
+            }
+            let size = if font == "10px" { 10. } else { 20. };
+            assert!((measure("Hello World", font, "1em", "0px").width - base.width - size * 11.).abs() < 0.01);
+            let base = measure("Hello World, again", font, "0px", "0px");
+            assert!((measure("Hello World, again", font, "0px", "1em").width - base.width - size * 2.).abs() < 0.01);
+            assert!((measure("a\r\nb", font, "0px", "3px").width - measure("a\r\nb", font, "0px", "0px").width - 6.).abs() < 0.01);
+            assert_eq!(measure("", font, "3px", "5px").width, 0.);
+        }
+    }
     use super::*;
     #[test]
     fn canvas_concrete_font_copies_retain_charges_and_reject_each_denial() {
