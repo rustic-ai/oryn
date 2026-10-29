@@ -31523,6 +31523,22 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_token_mutation_applies_to_new_navigation_not_committed_document() {
+        let mut page=RustExecutableDocument::load_with_environment(r#"<body><script>
+            globalThis.frame=document.createElement('iframe');
+            frame.sandbox.add('allow-scripts','allow-same-origin');
+            globalThis.childSource='<form id=f></form><script>globalThis.seen=[];f.onsubmit=e=>{seen.push("submit");e.preventDefault()};f.requestSubmit();<\/script>';
+            frame.srcdoc=childSource;document.body.appendChild(frame);
+        </script>"#,&BTreeMap::new(),None,Some(Url::parse("https://forms.test/start").unwrap())).unwrap();
+        assert_eq!(page.evaluate("frame.contentWindow.seen.join(',')").unwrap(),"");
+        page.evaluate("frame.sandbox.add('allow-forms');frame.contentWindow.f.requestSubmit();'ok'").unwrap();
+        assert_eq!(page.evaluate("frame.contentWindow.seen.join(',')").unwrap(),"");
+        page.evaluate("frame.srcdoc=childSource;'ok'").unwrap();
+        assert_eq!(page.evaluate("frame.contentWindow.seen.join(',')").unwrap(),"submit");
+        assert!(page.take_location_navigation().is_none());
+    }
+
+    #[test]
     fn submission_action_uses_detached_submitter_document_base() {
         let mut page = RustExecutableDocument::load_with_environment(
             "<form id=f method=post><input name=x value=original><button id=b name=button value=yes></button></form>",
