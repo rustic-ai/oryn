@@ -674,25 +674,25 @@ impl CspPolicySet {
         for policy in policies {
             let tokens = &policy.directives["sandbox"];
             let flags = SandboxFlags {
-                allow_scripts: tokens.iter().any(|v| v == "allow-scripts"),
-                allow_same_origin: tokens.iter().any(|v| v == "allow-same-origin"),
-                allow_forms: tokens.iter().any(|v| v == "allow-forms"),
-                allow_popups: tokens.iter().any(|v| v == "allow-popups"),
+                allow_scripts: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-scripts")),
+                allow_same_origin: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-same-origin")),
+                allow_forms: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-forms")),
+                allow_popups: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-popups")),
                 allow_popups_to_escape_sandbox: tokens
                     .iter()
-                    .any(|v| v == "allow-popups-to-escape-sandbox"),
-                allow_modals: tokens.iter().any(|v| v == "allow-modals"),
+                    .any(|v| v.eq_ignore_ascii_case("allow-popups-to-escape-sandbox")),
+                allow_modals: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-modals")),
                 allow_storage_access_by_user_activation: tokens
                     .iter()
-                    .any(|v| v == "allow-storage-access-by-user-activation"),
-                allow_downloads: tokens.iter().any(|v| v == "allow-downloads"),
-                allow_top_navigation: tokens.iter().any(|v| v == "allow-top-navigation"),
+                    .any(|v| v.eq_ignore_ascii_case("allow-storage-access-by-user-activation")),
+                allow_downloads: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-downloads")),
+                allow_top_navigation: tokens.iter().any(|v| v.eq_ignore_ascii_case("allow-top-navigation")),
                 allow_top_navigation_by_user_activation: tokens
                     .iter()
-                    .any(|v| v == "allow-top-navigation-by-user-activation"),
+                    .any(|v| v.eq_ignore_ascii_case("allow-top-navigation-by-user-activation")),
                 allow_top_navigation_to_custom_protocols: tokens
                     .iter()
-                    .any(|v| v == "allow-top-navigation-to-custom-protocols"),
+                    .any(|v| v.eq_ignore_ascii_case("allow-top-navigation-to-custom-protocols")),
             };
             result = Some(match result {
                 None => flags,
@@ -1757,6 +1757,25 @@ fn worker_event_url(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sandbox_tokens_use_ascii_case_folding_only() {
+        let tokens = "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation allow-downloads allow-top-navigation allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols";
+        let flags = |value: &str| {
+            let mut policy = super::CspPolicySet::new("https://sandbox.test/");
+            policy.install(&format!("sandbox {value}"), super::CspDisposition::Enforce, "header");
+            policy.sandbox().unwrap()
+        };
+        let lower = flags(tokens);
+        assert_eq!(lower, flags(&tokens.to_ascii_uppercase()));
+        assert!(lower.allow_scripts && lower.allow_same_origin && lower.allow_forms
+            && lower.allow_popups && lower.allow_popups_to_escape_sandbox
+            && lower.allow_modals && lower.allow_storage_access_by_user_activation
+            && lower.allow_downloads && lower.allow_top_navigation
+            && lower.allow_top_navigation_by_user_activation
+            && lower.allow_top_navigation_to_custom_protocols);
+        assert_eq!(flags("allow-ſcripts allow-same-orİgin"), super::SandboxFlags::default());
+    }
+
     #[test]
     fn captured_frame_sandbox_is_enforced_and_round_trips_without_header_relabeling() {
         for (tokens, allowed) in [

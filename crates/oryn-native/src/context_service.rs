@@ -10375,7 +10375,13 @@ impl ParentContextService {
             )?;
         }
         context.window_worker_creator(page_id, target, *document_generation, *stream_epoch)?;
-        if !decision.allowed {
+        // Source-list permission is not sandbox script permission. A captured
+        // parser policy must also respect the committed document's sandbox.
+        let sandbox_blocks = policy.sandbox().is_some_and(|flags| !flags.allow_scripts)
+            || crate::csp::CspPolicySet::from_agent_policy(&current)
+                .sandbox()
+                .is_some_and(|flags| !flags.allow_scripts);
+        if !decision.allowed || sandbox_blocks {
             return Ok(ContextServiceResponse::ScriptLoadFailed {
                 failure: crate::script_load_failure::ScriptLoadFailure::Fetch(
                     "inline script blocked by Content-Security-Policy".into(),
@@ -23015,6 +23021,37 @@ mod realm_inline_script_authority_tests {
                 .authorize_inline_script(id, Some(&child), "0", Some("good"), true)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn inline_script_authorization_enforces_committed_sandbox() {
+        for (tokens, allowed) in [("", false), ("allow-ſcripts", false),
+            ("allow-scripts", true), ("ALLOW-SCRIPTS", true)] {
+            let context = crate::Browser::new().new_context();
+            let page = context.new_page();
+            let id = page.page_id();
+            context.install_document_security(id, "https://root.test/".into(),
+                &[("Content-Security-Policy".into(), format!("sandbox {tokens}"))]).unwrap();
+            context.handle_message_wire(id, MessageRequest::RegisterRootDocument {
+                document_generation: 1, stream_epoch: 0,
+            }).unwrap();
+            let creator = Creator::Window { target: WindowTarget::Root,
+                document_generation: 1, stream_epoch: 0 };
+            let service = ParentContextService::new(context.clone(), id);
+            let ContextServiceResponse::CapturedScriptPolicy { authority } = service.handle(
+                ContextServiceRequest::CaptureScriptPolicy { page_id: id, creator: creator.clone() }
+            ).unwrap() else { panic!("capture native sandbox policy") };
+            for speculation_rules in [false, true] {
+                for script_policy in [None, Some(authority.as_str())] {
+                    let result = service.authorize_inline_script_kind(InlineScriptAuthorization {
+                        page_id: id, creator: Some(&creator), source: "0", nonce: None,
+                        parser_inserted: true, script_policy, speculation_rules,
+                    }).unwrap();
+                    assert_eq!(matches!(result, ContextServiceResponse::ScriptAuthorized), allowed,
+                        "sandbox {tokens}, speculation_rules={speculation_rules}, captured={}", script_policy.is_some());
+                }
+            }
+        }
     }
 }
 
