@@ -5,6 +5,9 @@ use super::*;
 pub(super) struct Playback {
     asset: Option<String>,
     duration: f64,
+    available: media_time_ranges::Ranges,
+    played: media_time_ranges::Ranges,
+    played_failed: bool,
     anchor: Option<std::time::Instant>,
     last_timeupdate: Option<std::time::Instant>,
     origin_clean: bool,
@@ -34,6 +37,74 @@ fn fail(name: &str) -> V8BindingError {
         member: name.into(),
     }
 }
+fn played_until(
+    value: &Playback,
+    raw_end: f64,
+    looping: bool,
+) -> Result<media_time_ranges::Ranges, V8BindingError> {
+    if value.played_failed {
+        return Err(fail("QuotaExceededError"));
+    }
+    let mut ranges = value.played.clone();
+    if value.asset.is_none()
+        || value.stream.is_some()
+        || value.paused
+        || value.seeking
+        || value.anchor.is_none()
+    {
+        return Ok(ranges);
+    }
+    let append = |ranges: &mut media_time_ranges::Ranges, start, end| {
+        ranges
+            .insert(start, end)
+            .map_err(|_| fail("QuotaExceededError"))
+    };
+    if looping && value.duration > 0. && raw_end >= value.duration {
+        if raw_end - value.time >= value.duration {
+            append(&mut ranges, 0., value.duration)?;
+        } else {
+            append(&mut ranges, value.time, value.duration)?;
+            append(&mut ranges, 0., raw_end % value.duration)?;
+        }
+    } else {
+        append(
+            &mut ranges,
+            value.time,
+            raw_end.min(value.duration).max(value.time),
+        )?;
+    }
+    Ok(ranges)
+}
+fn record_played_until(
+    value: &mut Playback,
+    raw_end: f64,
+    looping: bool,
+) -> Result<(), V8BindingError> {
+    match played_until(value, raw_end, looping) {
+        Ok(ranges) => {
+            value.played = ranges;
+            Ok(())
+        }
+        Err(error) => {
+            value.played_failed = true;
+            Err(error)
+        }
+    }
+}
+fn loops(state: &V8BindingState, node: NodeId) -> Result<bool, V8BindingError> {
+    Ok(state
+        .dom
+        .borrow()
+        .attribute_in_null_namespace(node, "loop")?
+        .is_some())
+}
+fn clock_position(raw: f64, duration: f64, looping: bool) -> f64 {
+    if looping && duration > 0. {
+        raw % duration
+    } else {
+        raw.min(duration)
+    }
+}
 pub(super) fn url_reset(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
     url_reset_for_selection(state, node, false)
 }
@@ -57,6 +128,9 @@ pub(super) fn url_reset_for_selection(
     value.ended = false;
     value.anchor = None;
     value.time = 0.;
+    value.available.clear();
+    value.played.clear();
+    value.played_failed = false;
     value.seeking = false;
     value.seek_sampled = false;
     if !preserve_play {
@@ -121,11 +195,14 @@ pub(super) fn text_track_clock(
     let media = state.native_media.borrow();
     let value = &media.playback[&node];
     let time = if value.asset.is_some() {
-        (value.time
-            + value
-                .anchor
-                .map_or(0., |anchor| anchor.elapsed().as_secs_f64()))
-        .min(value.duration)
+        clock_position(
+            value.time
+                + value
+                    .anchor
+                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+            value.duration,
+            loops(state, node)?,
+        )
     } else {
         value.time
     };
@@ -193,6 +270,7 @@ pub(super) fn track_selection_changed(
     node: NodeId,
     clear_video: bool,
 ) -> Result<(), V8BindingError> {
+    let looping = loops(state, node)?;
     stop_outputs(scope, state, node)?;
     let request = {
         let media = state.native_media.borrow();
@@ -202,11 +280,14 @@ pub(super) fn track_selection_changed(
                 .as_ref()
                 .map(|id| crate::media_capture::Request::UrlSample {
                     id: id.clone(),
-                    time: (value.time
-                        + value
-                            .anchor
-                            .map_or(0., |anchor| anchor.elapsed().as_secs_f64()))
-                    .min(value.duration),
+                    time: clock_position(
+                        value.time
+                            + value
+                                .anchor
+                                .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+                        value.duration,
+                        looping,
+                    ),
                     paused: true,
                     volume: 0.,
                     seek: true,
@@ -227,6 +308,22 @@ pub(super) fn track_selection_changed(
 }
 pub(super) fn has_stream(value: &Playback) -> bool {
     value.stream.is_some()
+}
+/// URL assets are published only after complete bounded transfer and successful
+/// native decoder admission. Streams have no finite buffered/seekable interval.
+/// Return an independent snapshot, never a live alias into playback state.
+pub(super) fn available_ranges(
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<media_time_ranges::Ranges, V8BindingError> {
+    ensure(state, node)?;
+    let media = state.native_media.borrow();
+    let value = &media.playback[&node];
+    Ok(if value.asset.is_some() && value.stream.is_none() {
+        value.available.clone()
+    } else {
+        media_time_ranges::Ranges::default()
+    })
 }
 fn ensure(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
     if !["video", "audio"].iter().any(|tag| {
@@ -261,6 +358,43 @@ pub(super) fn get<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     ensure(state, node)?;
+    if matches!(member, "buffered" | "seekable" | "played") {
+        platform_listener_graph::reclaim(state);
+        let ranges = if member == "played" {
+            let looping = loops(state, node)?;
+            let media = state.native_media.borrow();
+            let value = &media.playback[&node];
+            let raw_end = value.time
+                + value
+                    .anchor
+                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+            played_until(value, raw_end, looping)?
+        } else {
+            available_ranges(state, node)?
+        };
+        // Snapshot objects have independent bounded native storage, reclaimed by
+        // the existing platform-object weak ownership path.
+        let count = state
+            .platform_objects
+            .borrow()
+            .values()
+            .filter(|record| matches!(record, PlatformObjectRecord::TimeRanges(_)))
+            .count();
+        if count >= 256 {
+            return Err(fail("QuotaExceededError"));
+        }
+        let id =
+            register_platform_object(state, PlatformObjectRecord::TimeRanges(Box::new(ranges)));
+        return match new_platform_object(scope, state, "TimeRanges", id) {
+            Ok(object) => Ok(object.into()),
+            Err(error) => {
+                state.platform_wrappers.borrow_mut().remove(&id);
+                state.platform_objects.borrow_mut().remove(&id);
+                state.platform_edges.borrow_mut().discard_unpublished(id);
+                Err(error)
+            }
+        };
+    }
     let media = state.native_media.borrow();
     let value = &media.playback[&node];
     Ok(match member {
@@ -283,11 +417,14 @@ pub(super) fn get<'s>(
         "currentTime" => v8::Number::new(
             scope,
             if value.asset.is_some() {
-                (value.time
-                    + value
-                        .anchor
-                        .map_or(0., |anchor| anchor.elapsed().as_secs_f64()))
-                .min(value.duration)
+                clock_position(
+                    value.time
+                        + value
+                            .anchor
+                            .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+                    value.duration,
+                    loops(state, node)?,
+                )
             } else {
                 value.time
             },
@@ -946,6 +1083,10 @@ pub(super) fn url_decoded(
         .is_some()
         && state.refresh_native_container_policy().is_ok()
         && state.native_permissions_policy_allows("autoplay");
+    let mut available = media_time_ranges::Ranges::default();
+    available
+        .insert(0., duration)
+        .map_err(|_| fail("NotReadableError"))?;
     let old = {
         let mut media = state.native_media.borrow_mut();
         let value = media.playback.get_mut(&node).unwrap();
@@ -958,6 +1099,7 @@ pub(super) fn url_decoded(
         value.origin_clean = origin_clean;
         value.has_audio = metadata["audio"].as_bool().unwrap_or(false);
         value.duration = duration;
+        value.available = available;
         value.width = width;
         value.height = height;
         value.ready = 4;
@@ -978,6 +1120,7 @@ pub(super) fn url_decoded(
     Ok(())
 }
 fn url_pause(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+    let looping = loops(state, node)?;
     let request = {
         let mut media = state.native_media.borrow_mut();
         let value = media.playback.get_mut(&node).unwrap();
@@ -985,8 +1128,13 @@ fn url_pause(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError>
             return Ok(());
         }
         if !value.paused {
-            if let Some(anchor) = value.anchor.take() {
-                value.time = (value.time + anchor.elapsed().as_secs_f64()).min(value.duration);
+            let raw_end = value.time
+                + value
+                    .anchor
+                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+            record_played_until(value, raw_end, looping)?;
+            if value.anchor.take().is_some() {
+                value.time = clock_position(raw_end, value.duration, looping);
             }
             value.url_events.push_back("timeupdate");
             value.url_events.push_back("pause");
@@ -1013,6 +1161,9 @@ pub(super) fn seek(
     node: NodeId,
     input: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
     ensure(state, node)?;
     let time = input
         .number_value(scope)
@@ -1020,8 +1171,22 @@ pub(super) fn seek(
     if !time.is_finite() {
         return Err(fail("TypeError"));
     }
+    // Numeric conversion can execute author code and retire or replace native
+    // ownership. Never revive a retired owner or unwrap its discarded record.
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
+    let looping = loops(state, node)?;
     let mut media = state.native_media.borrow_mut();
-    let value = media.playback.get_mut(&node).unwrap();
+    let value = media
+        .playback
+        .get_mut(&node)
+        .ok_or_else(|| fail("InvalidStateError"))?;
+    let old_end = value.time
+        + value
+            .anchor
+            .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+    record_played_until(value, old_end, looping)?;
     value.seek_serial = value
         .seek_serial
         .checked_add(1)
@@ -1105,11 +1270,7 @@ fn poll_url(
         .borrow()
         .attribute_in_null_namespace(node, "loop")?
         .is_some();
-    let position = if looping && duration > 0. {
-        time % duration
-    } else {
-        time.min(duration)
-    };
+    let position = clock_position(time, duration, looping);
     let crate::media_capture::Response::UrlFrame(frame) = native_platform::media_request(
         state,
         crate::media_capture::Request::UrlSample {
@@ -1166,6 +1327,7 @@ fn poll_url(
     let mut media = state.native_media.borrow_mut();
     let value = media.playback.get_mut(&node).unwrap();
     value.seek_sampled = true;
+    record_played_until(value, time, looping)?;
     if seek {
         value.seeking = false;
         value.url_events.push_back("timeupdate");
@@ -1274,14 +1436,24 @@ pub(super) fn command(
 
 pub(super) fn suspend(state: &V8BindingState, suspended: bool) {
     let now = std::time::Instant::now();
-    for value in state.native_media.borrow_mut().playback.values_mut() {
+    for (node, value) in state.native_media.borrow_mut().playback.iter_mut() {
         if value.stream.is_some() {
             continue;
         }
         if suspended {
-            if let Some(anchor) = value.anchor.take() {
-                value.time = (value.time + now.saturating_duration_since(anchor).as_secs_f64())
-                    .min(value.duration);
+            let raw_end = value.time
+                + value.anchor.map_or(0., |anchor| {
+                    now.saturating_duration_since(anchor).as_secs_f64()
+                });
+            // Suspension has no author exception channel. Keep capacity failure
+            // sticky so later played reads fail rather than publish partial ranges.
+            let Ok(looping) = loops(state, *node) else {
+                value.anchor = None;
+                continue;
+            };
+            let _ = record_played_until(value, raw_end, looping);
+            if value.anchor.take().is_some() {
+                value.time = clock_position(raw_end, value.duration, looping);
             }
         } else if value.asset.is_some() {
             value.seek_sampled = false;
@@ -1453,6 +1625,308 @@ mod url_tests {
     use super::super::native_user_activation::test_transport::Messages;
     use super::*;
     use std::sync::{Arc, Mutex};
+    #[test]
+    fn seek_author_conversion_cannot_revive_retired_or_discarded_playback() {
+        fn invalidate(
+            scope: &mut v8::PinScope,
+            args: v8::FunctionCallbackArguments,
+            _rv: v8::ReturnValue,
+        ) {
+            let state = scope
+                .get_current_context()
+                .get_slot::<V8BindingState>()
+                .unwrap();
+            if args.get(0).boolean_value(scope) {
+                state.retire_execution();
+            } else {
+                let node = state.dom.borrow().find_by_id("v").unwrap();
+                state.native_media.borrow_mut().playback.remove(&node);
+            }
+        }
+        super::super::tests::initialize_v8();
+        for retire in [false, true] {
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<video id=v></video>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            let state =
+                install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+            let node = dom.borrow().find_by_id("v").unwrap();
+            let callback = v8::Function::new(scope, invalidate).unwrap();
+            let key = v8::String::new(scope, "invalidatePlayback").unwrap();
+            context
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into())
+                .unwrap();
+            assert!(
+                eval(
+                    scope,
+                    &format!(
+                        r#"
+                globalThis.v=document.getElementById('v');
+                (()=>{{try{{v.fastSeek({{valueOf(){{invalidatePlayback({retire});return 7}}}})}}
+                catch(e){{return e.name==='InvalidStateError'}}return false}})()
+            "#
+                    )
+                )
+                .is_true()
+            );
+            assert!(!state.native_media.borrow().playback.contains_key(&node));
+            if retire {
+                let time = v8::Number::new(scope, 9.);
+                assert!(
+                    matches!(seek(scope, &state, node, time.into()), Err(V8BindingError::Unsupported { member, .. }) if member=="InvalidStateError")
+                );
+                assert!(!state.native_media.borrow().playback.contains_key(&node));
+            }
+        }
+    }
+    #[test]
+    fn time_ranges_borrowed_getter_uses_native_receiver_realm() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let owner_context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, owner_context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _owner = install_generated_bindings(scope, owner_context, dom, RealmId(0), 1).unwrap();
+        let video = eval(scope, "document.getElementById('v')");
+        let prototype = eval(scope, "TimeRanges.prototype");
+        let foreign = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, foreign);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<p>foreign</p>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _foreign = install_generated_bindings(scope, foreign, dom, RealmId(1), 1).unwrap();
+        for (name, value) in [("foreignVideo", video), ("ownerRangesPrototype", prototype)] {
+            let key = v8::String::new(scope, name).unwrap();
+            assert_eq!(
+                foreign.global(scope).set(scope, key.into(), value),
+                Some(true)
+            );
+        }
+        assert!(
+            eval(
+                scope,
+                r#"
+          const getter=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'buffered').get;
+          const result=getter.call(foreignVideo);
+          Object.getPrototypeOf(result)===ownerRangesPrototype && result.length===0 &&
+          Object.getPrototypeOf(result)!==TimeRanges.prototype
+        "#
+            )
+            .is_true()
+        );
+    }
+    #[test]
+    fn played_clock_segments_preserve_seek_gaps_and_loop_wraps() {
+        assert_eq!(clock_position(11., 10., true), 1.);
+        assert_eq!(clock_position(21., 10., true), 1.);
+        assert_eq!(clock_position(11., 10., false), 10.);
+        assert_eq!(clock_position(1., 0., true), 0.);
+        let mut value = Playback {
+            asset: Some("native".into()),
+            duration: 10.,
+            time: 1.,
+            anchor: Some(std::time::Instant::now()),
+            ..Default::default()
+        };
+        record_played_until(&mut value, 3., false).unwrap();
+        value.time = 7.;
+        record_played_until(&mut value, 8., false).unwrap();
+        assert_eq!(value.played.interval(0), Ok((1., 3.)));
+        assert_eq!(value.played.interval(1), Ok((7., 8.)));
+        value.seeking = true;
+        record_played_until(&mut value, 10., false).unwrap();
+        assert_eq!(value.played.interval(1), Ok((7., 8.)));
+        value.seeking = false;
+        value.paused = true;
+        record_played_until(&mut value, 10., false).unwrap();
+        assert_eq!(value.played.len(), 2);
+        value.paused = false;
+        value.played.clear();
+        value.time = 9.;
+        record_played_until(&mut value, 11., true).unwrap();
+        assert_eq!(value.played.interval(0), Ok((0., 1.)));
+        assert_eq!(value.played.interval(1), Ok((9., 10.)));
+        record_played_until(&mut value, 21., true).unwrap();
+        assert_eq!(value.played.interval(0), Ok((0., 10.)));
+        assert_eq!(value.played.len(), 1);
+    }
+    #[test]
+    fn played_getter_settles_pause_without_bridging_paused_seek() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        state.set_native_platform_backend(Arc::new(Decoder::default()));
+        state.set_message_transport(Arc::new(Messages::new(
+            state.document_generation(),
+            state.document_authority_epoch(),
+        )));
+        let node = dom.borrow().find_by_id("v").unwrap();
+        url_decoded(
+            &state,
+            node,
+            &serde_json::json!({"id":"played-native","duration":20.,"width":1,"height":1}),
+            true,
+        )
+        .unwrap();
+        {
+            let mut media = state.native_media.borrow_mut();
+            let value = media.playback.get_mut(&node).unwrap();
+            value.time = 1.;
+            value.paused = false;
+            value.anchor = Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+        }
+        assert!(
+            eval(
+                scope,
+                r#"
+          globalThis.v=document.getElementById('v'); globalThis.beforePause=v.played;
+          v.pause(); globalThis.afterPause=v.played;
+          v.currentTime=10;
+          v.paused && afterPause.length===1 && afterPause.start(0)===1 &&
+          afterPause.end(0)>=3 && afterPause.end(0)<4 &&
+          v.played.length===1 && v.played.end(0)===afterPause.end(0) &&
+          beforePause.end(0)<=afterPause.end(0)
+        "#
+            )
+            .is_true()
+        );
+        assert!(eval(scope, "v.loop=true;true").is_true());
+        {
+            let mut media = state.native_media.borrow_mut();
+            let value = media.playback.get_mut(&node).unwrap();
+            value.time = 19.;
+            value.paused = false;
+            value.seeking = false;
+            value.anchor = Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+        }
+        assert!(
+            eval(
+                scope,
+                r#"
+          v.currentTime>=1 && v.currentTime<2 &&
+          (()=>{v.pause();return v.currentTime>=1 && v.currentTime<2 &&
+            v.played.length===2 && v.played.start(0)===0 &&
+            v.played.start(1)===19 && v.played.end(1)===20})()
+        "#
+            )
+            .is_true()
+        );
+        {
+            let mut media = state.native_media.borrow_mut();
+            let value = media.playback.get_mut(&node).unwrap();
+            value.time = 19.;
+            value.paused = false;
+            value.anchor = Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+        }
+        state.set_execution_suspended(true);
+        {
+            let media = state.native_media.borrow();
+            let value = &media.playback[&node];
+            assert!((1.0..2.0).contains(&value.time));
+            assert!(value.anchor.is_none());
+        }
+        state.set_execution_suspended(false);
+        url_reset(&state, node).unwrap();
+        assert!(
+            eval(
+                scope,
+                "v.played.length===0 && afterPause.length===1 && afterPause.start(0)===1"
+            )
+            .is_true()
+        );
+    }
+    #[test]
+    fn played_capacity_failure_preserves_old_inventory_and_is_sticky() {
+        let mut value = Playback {
+            asset: Some("native".into()),
+            duration: 1024.,
+            time: 800.,
+            anchor: Some(std::time::Instant::now()),
+            ..Default::default()
+        };
+        for i in 0..media_time_ranges::CAPACITY {
+            value
+                .played
+                .insert((i * 2) as f64, (i * 2 + 1) as f64)
+                .unwrap();
+        }
+        let old = value.played.clone();
+        assert!(record_played_until(&mut value, 801., false).is_err());
+        assert_eq!(value.played, old);
+        assert!(value.played_failed);
+        assert!(played_until(&value, 801., false).is_err());
+    }
+    #[test]
+    fn time_ranges_snapshots_reclaim_capacity_without_retiring_live_snapshot() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(
+            eval(
+                scope,
+                r#"
+          globalThis.v=document.getElementById('v');globalThis.snapshots=[];
+          for(let i=0;i<256;i++)snapshots.push(v.buffered);
+          globalThis.retained=snapshots[0];
+          (()=>{try{v.buffered}catch(e){return e.name==='QuotaExceededError'}})()
+        "#
+            )
+            .is_true()
+        );
+        assert!(eval(scope, "snapshots=null;true").is_true());
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(
+            state
+                .platform_objects
+                .borrow()
+                .values()
+                .filter(|record| matches!(record, PlatformObjectRecord::TimeRanges(_)))
+                .count(),
+            1
+        );
+        assert!(
+            eval(
+                scope,
+                r#"
+          retained.length===0 && v.buffered.length===0 &&
+          (()=>{try{retained.start()}catch(e){return e.name==='TypeError'}})() &&
+          (()=>{try{new TimeRanges()}catch(e){return e.name==='TypeError'}})()
+        "#
+            )
+            .is_true()
+        );
+    }
     #[derive(Default)]
     struct Decoder {
         releases: Mutex<Vec<String>>,
@@ -1583,6 +2057,8 @@ mod url_tests {
         state.set_native_platform_backend(decoder.clone());
         let node = dom.borrow().find_by_id("v").unwrap();
         assert!(eval(scope,"globalThis.v=document.getElementById('v');v.paused && v.matches(':paused') && !v.matches(':playing')").is_true());
+        assert_eq!(available_ranges(&state, node).unwrap().len(), 0);
+        assert!(eval(scope, "v.buffered instanceof TimeRanges && v.buffered.length===0 && v.seekable.length===0 && v.buffered!==v.buffered").is_true());
         url_decoded(
             &state,
             node,
@@ -1590,6 +2066,26 @@ mod url_tests {
             true,
         )
         .unwrap();
+        let available = available_ranges(&state, node).unwrap();
+        assert_eq!(available.interval(0), Ok((0., 20.)));
+        assert!(
+            eval(
+                scope,
+                "v.played instanceof TimeRanges && v.played.length===0"
+            )
+            .is_true()
+        );
+        assert!(eval(scope, r#"
+          globalThis.snapshot=v.buffered;
+          snapshot.length===1 && snapshot.start(0)===0 && snapshot.end(0)===20 &&
+          snapshot.end(4294967296)===20 && snapshot.start(NaN)===0 &&
+          snapshot.start({valueOf(){return 0.9}})===0 &&
+          (()=>{const e={};try{snapshot.start({valueOf(){throw e}})}catch(actual){return actual===e}})() &&
+          (()=>{try{snapshot.start(-1)}catch(e){return e.name==='IndexSizeError'}})() &&
+          v.seekable.start(0)===0 && v.seekable.end(0)===20 &&
+          (()=>{try{snapshot.end(1)}catch(e){return e.name==='IndexSizeError'}})() &&
+          (()=>{try{TimeRanges.prototype.start.call({},{valueOf(){throw Error('converted')}})}catch(e){return e.name==='TypeError'}})()
+        "#).is_true());
         assert!(eval(scope,"globalThis.settled=false;v.play().then(()=>settled=true);!v.paused && v.matches(':playing')").is_true());
         poll(scope, &state).unwrap();
         scope.perform_microtask_checkpoint();
@@ -1609,6 +2105,33 @@ mod url_tests {
         poll(scope, &state).unwrap();
         assert!(eval(scope, "!v.seeking && events.join()==='true,true'").is_true());
         assert!(eval(scope, "v.pause();v.paused && v.matches(':paused')").is_true());
+        assert!(eval(scope, r#"
+          HTMLMediaElement.prototype.fastSeek.length===1 &&
+          (()=>{try{v.fastSeek()}catch(e){return e.name==='TypeError'}})() &&
+          (()=>{try{v.fastSeek(Infinity)}catch(e){return e.name==='TypeError'}})() &&
+          (()=>{const sentinel={};try{v.fastSeek({valueOf(){throw sentinel}})}catch(e){return e===sentinel}})() &&
+          (()=>{let converted=false;try{HTMLMediaElement.prototype.fastSeek.call({}, {valueOf(){converted=true;return 7}})}catch(e){return e.name==='TypeError'&&!converted}})() &&
+          (()=>{events.length=0;return v.fastSeek('7')===undefined && v.seeking && v.currentTime===7 && v.paused})()
+        "#).is_true());
+        poll(scope, &state).unwrap();
+        assert!(eval(scope, "v.seeking && events.join()==='true'").is_true());
+        poll(scope, &state).unwrap();
+        poll(scope, &state).unwrap();
+        assert!(
+            eval(
+                scope,
+                "!v.seeking && events.join()==='true,true' && v.currentTime===7"
+            )
+            .is_true()
+        );
+        assert!(
+            decoder
+                .samples
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(time, paused)| *time == 7. && *paused)
+        );
         assert!(
             decoder
                 .samples
@@ -1658,8 +2181,14 @@ mod url_tests {
             false,
         )
         .unwrap();
+        let available = available_ranges(&state, node).unwrap();
+        assert_eq!(available.interval(0), Ok((0., 1.)));
         *decoder.fail_release.lock().unwrap() = true;
         url_reset(&state, node).unwrap();
+        assert_eq!(available_ranges(&state, node).unwrap().len(), 0);
+        assert_eq!(state.native_media.borrow().playback[&node].played.len(), 0);
+        assert!(!state.native_media.borrow().playback[&node].played_failed);
+        assert_eq!(available.interval(0), Ok((0., 1.)));
         assert!(state.native_media.borrow().resources.has_work());
         *decoder.fail_release.lock().unwrap() = false;
         media_resource::poll(scope, &state).unwrap();

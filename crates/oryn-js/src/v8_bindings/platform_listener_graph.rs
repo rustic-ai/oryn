@@ -642,6 +642,12 @@ pub(super) fn reclaim(state: &V8BindingState) {
             message_ports::release_collected(state, id);
             web_animations::release_collected(state, id);
             text_tracks::release_collected(state, id);
+            // TimeRanges is immutable native leaf storage. Its wrapper finalizer
+            // releases the snapshot itself, not just listeners and reverse edges.
+            if matches!(state.platform_objects.borrow().get(&id), Some(PlatformObjectRecord::TimeRanges(_))) {
+                state.platform_objects.borrow_mut().remove(&id);
+                state.platform_wrappers.borrow_mut().remove(&id);
+            }
             if let Some((stores, custody)) = cleanup {
                 drop(stores);
                 drop(custody);

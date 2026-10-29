@@ -238,6 +238,7 @@ mod encrypted_media;
 mod intersection_observers;
 mod media_element;
 mod media_resource;
+mod media_time_ranges;
 mod native_media;
 mod performance_observer;
 mod permission_prompt;
@@ -1223,6 +1224,7 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
+    TimeRanges(Box<media_time_ranges::Ranges>),
     QueuingStrategy {
         byte_length: bool,
         high_water_mark: f64,
@@ -13171,6 +13173,7 @@ fn is_platform_interface(interface: &str) -> bool {
             | "PermissionsPolicy"
             | "PictureInPictureWindow"
             | "MediaError"
+            | "TimeRanges"
             | "Performance"
             | "PerformanceEntry"
             | "PerformanceResourceTiming"
@@ -20442,6 +20445,7 @@ fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static
         PlatformObjectRecord::TextTrackList(text_tracks::List::Cues(..)) => "TextTrackCueList",
         PlatformObjectRecord::VttRegion(_) => "VTTRegion",
         PlatformObjectRecord::MediaError { .. } => "MediaError",
+        PlatformObjectRecord::TimeRanges(_) => "TimeRanges",
         PlatformObjectRecord::Performance => "Performance",
         PlatformObjectRecord::PerformanceObserver(_) => "PerformanceObserver",
         PlatformObjectRecord::PerformanceObserverEntryList(_) => "PerformanceObserverEntryList",
@@ -26382,6 +26386,9 @@ fn get_platform_attribute<'s>(
     }
     let record = platform_object(state, id)?;
     match (&*record, interface, member) {
+        (PlatformObjectRecord::TimeRanges(ranges), "TimeRanges", "length") => {
+            Ok(v8::Integer::new_from_unsigned(scope, ranges.len() as u32).into())
+        }
         (
             PlatformObjectRecord::PictureInPictureWindow(size),
             "PictureInPictureWindow",
@@ -28217,6 +28224,23 @@ fn call_platform_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "TimeRanges" && matches!(member, "start" | "end") {
+        let id = stateful_id(scope, object)?;
+        // Receiver validation precedes author numeric conversion; release native
+        // borrows before invoking conversion and revalidate the retained record.
+        if !matches!(&*platform_object(state, id)?, PlatformObjectRecord::TimeRanges(_)) {
+            return Err(V8BindingError::Message("TypeError: incompatible TimeRanges receiver".into()));
+        }
+        let index = args.get(0).uint32_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let record = platform_object(state, id)?;
+        let PlatformObjectRecord::TimeRanges(ranges) = &*record else {
+            return Err(V8BindingError::Message("TypeError: incompatible TimeRanges receiver".into()));
+        };
+        let (start, end) = ranges.interval(index).map_err(|_| V8BindingError::Unsupported {
+            interface: "TimeRanges".into(), member: "IndexSizeError".into(),
+        })?;
+        return Ok(Some(v8::Number::new(scope, if member == "start" { start } else { end }).into()));
+    }
     if interface=="EditContext"{return edit_context::call(scope,object,member,args);}
     if interface == "CanvasGradient" && member == "addColorStop" {
         return canvas_gradients::add_stop(scope, object, args).map(Some);
@@ -35692,6 +35716,9 @@ fn get_attribute_value<'s>(
                 | "muted"
                 | "volume"
                 | "readyState"
+                | "buffered"
+                | "seekable"
+                | "played"
                 | "currentTime"
                 | "seeking"
                 | "videoWidth"
@@ -39435,6 +39462,13 @@ fn call_operation<'s>(
     }
     if interface == "HTMLMediaElement" && member == "addTextTrack" {
         return text_tracks::add_track(scope, state, node, args);
+    }
+    if interface == "HTMLMediaElement" && member == "fastSeek" {
+        // The native decoder accepts exact positions. Exact seeking is also a
+        // valid fast-seek result; keep the existing asynchronous completion and
+        // cancellation path rather than fabricating synchronous seeked state.
+        media_element::seek(scope, state, node, args.get(0))?;
+        return Ok(None);
     }
     if interface == "HTMLMediaElement" && matches!(member, "play" | "pause") {
         return media_element::call(scope, state, node, member);

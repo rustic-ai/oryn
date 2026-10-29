@@ -1504,6 +1504,9 @@ interface HTMLTemplateElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLMediaElement : HTMLElement {
+  readonly attribute TimeRanges buffered;
+  readonly attribute TimeRanges seekable;
+  readonly attribute TimeRanges played;
   const unsigned short NETWORK_EMPTY = 0;
   const unsigned short NETWORK_IDLE = 1;
   const unsigned short NETWORK_LOADING = 2;
@@ -1535,6 +1538,7 @@ interface HTMLMediaElement : HTMLElement {
   readonly attribute boolean ended;
   readonly attribute unsigned short readyState;
   attribute double currentTime;
+  undefined fastSeek(double time);
   readonly attribute boolean seeking;
   [CEReactions] attribute boolean loop;
   [CEReactions] attribute boolean autoplay;
@@ -4274,6 +4278,13 @@ interface MediaError {
   const unsigned short MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
   readonly attribute unsigned short code;
   readonly attribute DOMString message;
+};
+
+[Exposed=Window]
+interface TimeRanges {
+  readonly attribute unsigned long length;
+  double start(unsigned long index);
+  double end(unsigned long index);
 };
 
 // Native Navigation API surface follows the pinned HTML interface contract.
