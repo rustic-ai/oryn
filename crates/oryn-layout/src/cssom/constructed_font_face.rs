@@ -487,6 +487,38 @@ mod constructed_font_controls {
         }
     }
     #[test]
+    fn native_canvas_spacing_preserves_relative_lengths_and_rejects_nonlengths() {
+        for (input, css) in [("1PX", "1px"), ("-0.5EM", "-0.5em"), ("1EX", "1ex"), ("1ch", "1ch"), ("1ic", "1ic"), ("1in", "1in"), ("0", "0px"), ("calc(1em + 2px)", "calc(1em + 2px)")] {
+            assert_eq!(parse_native_canvas_spacing(input, "https://example.test/", &Admission).unwrap().css, css);
+        }
+        for input in ["1", "normal", "inherit", "initial", "none", "1%", "1s", "1deg", "NaN", "Infinity", "1px; color:red", "1px 2px"] {
+            assert!(matches!(parse_native_canvas_spacing(input, "https://example.test/", &Admission), Err(NativeFontShorthandError::Syntax)), "{input}");
+        }
+    }
+    #[test]
+    fn native_canvas_spacing_denial_and_drop_release_concrete_leases() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Receipt(LeaseArc<AtomicUsize>);
+        impl Drop for Receipt { fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); } }
+        struct Budget { live: LeaseArc<AtomicUsize>, calls: AtomicUsize, deny: usize }
+        impl ImportAdmission for Budget {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == self.deny { return Err("spacing denial".into()); }
+                self.live.fetch_add(1, Ordering::SeqCst);
+                Ok(LeaseArc::new(Receipt(self.live.clone())))
+            }
+        }
+        for deny in [0, 1, usize::MAX] {
+            let budget = Budget { live: LeaseArc::new(AtomicUsize::new(0)), calls: AtomicUsize::new(0), deny };
+            let result = parse_native_canvas_spacing("calc(1em + 2px)", "https://example.test/", &budget);
+            if deny == usize::MAX { assert!(result.is_ok()); assert_eq!(budget.live.load(Ordering::SeqCst), 2); }
+            else { assert!(matches!(result, Err(NativeFontShorthandError::Resource(_)))); }
+            drop(result);
+            assert_eq!(budget.live.load(Ordering::SeqCst), 0);
+        }
+    }
+    #[test]
     fn native_font_style_projection_preserves_parsed_longhands_and_admission() {
         let font = parse_native_font_shorthand_typed("italic bold 20px/2 Example, serif", "https://example.test/", &Admission).unwrap();
         let projection = font.style_projection(&Admission).unwrap();
@@ -713,6 +745,43 @@ mod constructed_font_controls {
 }
 #[derive(Debug)]
 pub enum NativeFontShorthandError { Syntax, Resource(String) }
+/// Specified Canvas spacing stays relative until each draw's font is selected.
+/// Stylo owns parsing/calc internals; concrete output has a retained lease.
+pub struct NativeCanvasSpacing {
+    pub specified: style::values::specified::Length,
+    pub css: String,
+    _parser_allocation: LeaseArc<dyn Send + Sync>,
+    _output_allocation: LeaseArc<dyn Send + Sync>,
+}
+pub fn parse_native_canvas_spacing(
+    value: &str, base: &str, admission: &dyn ImportAdmission,
+) -> Result<NativeCanvasSpacing, NativeFontShorthandError> {
+    use style::parser::Parse;
+    use style_traits::ToCss;
+    use NativeFontShorthandError::{Resource, Syntax};
+    admission.checkpoint().map_err(Resource)?;
+    let parser_allocation = admission.reserve(value.len().checked_add(base.len())
+        .and_then(|bytes| bytes.checked_add(std::mem::size_of::<NativeCanvasSpacing>()))
+        .ok_or_else(|| Resource("canvas spacing input overflow".into()))?).map_err(Resource)?;
+    let base = UrlExtraData::from(url::Url::parse(base).map_err(|error| Resource(error.to_string()))?);
+    let context = font_constructed_context(&base);
+    let mut input = cssparser::ParserInput::new(value);
+    let specified = cssparser::Parser::new(&mut input)
+        .parse_entirely(|input| style::values::specified::Length::parse(&context, input))
+        .map_err(|_| Syntax)?;
+    admission.checkpoint().map_err(Resource)?;
+    let mut count = FontDescriptorCount::default();
+    specified.to_css(&mut style_traits::CssWriter::new(&mut count))
+        .map_err(|error| Resource(error.to_string()))?;
+    let output_allocation = admission.reserve(count.bytes).map_err(Resource)?;
+    let mut css = String::new();
+    css.try_reserve_exact(count.bytes).map_err(|error| Resource(error.to_string()))?;
+    if css.capacity() > count.bytes { return Err(Resource("canvas spacing output exceeded admission".into())); }
+    specified.to_css(&mut style_traits::CssWriter::new(&mut FontBoundedWriter { text: &mut css, limit: count.bytes }))
+        .map_err(|error| Resource(error.to_string()))?;
+    admission.checkpoint().map_err(Resource)?;
+    Ok(NativeCanvasSpacing { specified, css, _parser_allocation: parser_allocation, _output_allocation: output_allocation })
+}
 pub fn parse_native_font_shorthand(
     font: &str,
     base: &str,
