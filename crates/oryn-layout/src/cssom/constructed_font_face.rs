@@ -753,6 +753,11 @@ pub struct NativeCanvasSpacing {
     _parser_allocation: LeaseArc<dyn Send + Sync>,
     _output_allocation: LeaseArc<dyn Send + Sync>,
 }
+impl std::fmt::Debug for NativeCanvasSpacing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("NativeCanvasSpacing").field("css", &self.css).finish_non_exhaustive()
+    }
+}
 pub fn parse_native_canvas_spacing(
     value: &str, base: &str, admission: &dyn ImportAdmission,
 ) -> Result<NativeCanvasSpacing, NativeFontShorthandError> {

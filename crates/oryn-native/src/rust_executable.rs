@@ -20396,6 +20396,38 @@ mod tests {
         })();"#).unwrap();
     }
     #[test]
+    fn native_canvas_font_spacing_accessors_shape_and_preserve_relative_state() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const c=document.getElementById('c'), ctx=c.getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            for(const name of ['letterSpacing','wordSpacing']){
+                check(ctx[name]==='0px',name+' default');
+                const d=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,name);
+                check(d&&d.enumerable&&d.configurable&&typeof d.get==='function'&&typeof d.set==='function',name+' descriptor');
+                for(const [value,expected] of [['3PX','3px'],['-1em','-1em'],['1EX','1ex'],['1ch','1ch'],['1ic','1ic'],['calc(1em + 2px)','calc(1em + 2px)']]){ctx[name]=value;check(ctx[name]===expected,name+' canonical '+value)}
+                const old=ctx[name];for(const bad of ['normal','inherit','initial','1%','1s','1px 2px',NaN,Infinity,-Infinity]){ctx[name]=bad;check(ctx[name]===old,name+' invalid ignored')}
+                let calls=0;ctx[name]={toString(){calls++;c.width=c.width;return '2px'}};
+                check(calls===1&&ctx[name]==='2px',name+' reset reentry');
+                let error;try{d.set.call({}, {toString(){calls++;return '3px'}})}catch(e){error=e}
+                check(error instanceof TypeError&&calls===1,name+' brand precedes conversion');
+                error=undefined;try{ctx[name]=Symbol()}catch(e){error=e}check(error instanceof TypeError,name+' symbol');
+            }
+            ctx.reset();const base=ctx.measureText('Hello World').width;
+            ctx.letterSpacing='3px';check(Math.abs(ctx.measureText('Hello World').width-base-33)<.01,'native letter spacing');
+            ctx.letterSpacing='1em';check(Math.abs(ctx.measureText('Hello World').width-base-110)<.01,'default font em');
+            ctx.font='20px serif';const spaced=ctx.measureText('Hello World').width;ctx.letterSpacing='0px';
+            check(Math.abs(spaced-ctx.measureText('Hello World').width-220)<.01,'font change resolves retained em');
+            const normal=ctx.measureText('a  b').width;ctx.wordSpacing='1em';check(Math.abs(ctx.measureText('a  b').width-normal-40)<.01,'native word spacing');
+            ctx.letterSpacing='-1px';ctx.save();ctx.letterSpacing='7px';ctx.wordSpacing='9px';ctx.restore();
+            check(ctx.letterSpacing==='-1px'&&ctx.wordSpacing==='1em','spacing save restore');
+            c.width=c.width;check(ctx.letterSpacing==='0px'&&ctx.wordSpacing==='0px','resize reset');
+            ctx.wordSpacing='3px';ctx.reset();check(ctx.wordSpacing==='0px','explicit reset');
+            const off=new OffscreenCanvas(1,1).getContext('2d');check(off.letterSpacing==='0px'&&off.wordSpacing==='0px','offscreen defaults');
+            const offbase=off.measureText('abc').width;off.letterSpacing='2px';check(Math.abs(off.measureText('abc').width-offbase-6)<.01,'offscreen native spacing');
+        })();"#).unwrap();
+    }
+    #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
         let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c style='font-size:20px'></canvas>").unwrap();
         page.execute(r#"

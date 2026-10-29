@@ -41,6 +41,8 @@ pub(super) struct TextState {
     stretch: &'static str,
     caps: &'static str,
     rendering: &'static str,
+    letter_spacing: Option<Rc<oryn_layout::cssom::native_import_graph::NativeCanvasSpacing>>,
+    word_spacing: Option<Rc<oryn_layout::cssom::native_import_graph::NativeCanvasSpacing>>,
 }
 impl Default for TextState {
     fn default() -> Self {
@@ -50,6 +52,7 @@ impl Default for TextState {
             align: "start",
             baseline: "alphabetic",
             kerning: "auto", stretch: "normal", caps: "normal", rendering: "auto",
+            letter_spacing: None, word_spacing: None,
         }
     }
 }
@@ -91,6 +94,8 @@ impl TextState {
         }
     }
     pub(super) fn apply_shaping(&self, style: &mut BTreeMap<String, String>) {
+        style.insert("letter-spacing".into(), self.letter_spacing.as_ref().map_or("0px", |value| value.css.as_str()).into());
+        style.insert("word-spacing".into(), self.word_spacing.as_ref().map_or("0px", |value| value.css.as_str()).into());
         style.insert("font-kerning".into(), self.kerning.into());
         style.insert("text-rendering".into(), self.rendering.into());
         if self.stretch != "normal" { style.insert("font-stretch".into(), self.stretch.into()); }
@@ -99,7 +104,9 @@ impl TextState {
     }
     pub(super) fn shaping_projection_bytes(&self) -> Option<usize> {
         [("font-kerning", self.kerning), ("text-rendering", self.rendering),
-            ("font-stretch", self.stretch), ("font-variant-caps", self.caps)]
+            ("font-stretch", self.stretch), ("font-variant-caps", self.caps),
+            ("letter-spacing", self.letter_spacing.as_ref().map_or("0px", |value| value.css.as_str())),
+            ("word-spacing", self.word_spacing.as_ref().map_or("0px", |value| value.css.as_str()))]
             .into_iter().try_fold(0usize, |bytes, (key, value)| bytes.checked_add(128)
                 .and_then(|bytes| bytes.checked_add(key.len())).and_then(|bytes| bytes.checked_add(value.len())))
     }
@@ -136,7 +143,7 @@ pub(super) fn install(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
-    for name in ["direction", "textAlign", "textBaseline", "font", "fontKerning", "fontStretch", "fontVariantCaps", "textRendering"] {
+    for name in ["direction", "textAlign", "textBaseline", "font", "fontKerning", "fontStretch", "fontVariantCaps", "textRendering", "letterSpacing", "wordSpacing"] {
         let key = v8::String::new(scope, name)
             .ok_or(V8BindingError::Allocation("canvas text state key"))?;
         let getter = v8::Function::builder(get)
@@ -171,6 +178,13 @@ fn get(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
         return;
     };
     let name = args.data().to_rust_string_lossy(scope);
+    if matches!(name.as_str(), "letterSpacing" | "wordSpacing") {
+        let spacing = state.canvas_draw_states.borrow().get(&canvas).and_then(|draw| {
+            if name == "letterSpacing" { draw.text.letter_spacing.clone() } else { draw.text.word_spacing.clone() }
+        });
+        if let Some(value) = v8::String::new(scope, spacing.as_ref().map_or("0px", |value| value.css.as_str())) { rv.set(value.into()); }
+        return;
+    }
     if name == "font" {
         let font = state
             .canvas_draw_states
@@ -211,6 +225,34 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
         return;
     };
     if current != canvas {
+        return;
+    }
+    if matches!(name.as_str(), "letterSpacing" | "wordSpacing") {
+        let result = (|| -> Result<(), V8BindingError> {
+            let _entry = state.enter_retained_allocation(scope)?;
+            let identity = (state.document_root(), state.document_generation(), state.document_stream_epoch());
+            let owned = owned_string(scope, &state, value)?;
+            let base = state.native_retained_document_base_url(state.document_root())?;
+            let allocation = state.retained_allocation.borrow().clone().ok_or(V8BindingError::Allocation("Canvas spacing admission unavailable"))?;
+            let admission = SpacingAdmission { cancelled: allocation.capture_cancellation().map_err(V8BindingError::Message)?, allocation };
+            let spacing = match oryn_layout::cssom::native_import_graph::parse_native_canvas_spacing(&owned.value, &base, &admission) {
+                Ok(spacing) => spacing,
+                Err(oryn_layout::cssom::native_import_graph::NativeFontShorthandError::Syntax) => return Ok(()),
+                Err(oryn_layout::cssom::native_import_graph::NativeFontShorthandError::Resource(error)) => return Err(V8BindingError::Message(error)),
+            };
+            if scope.is_execution_terminating() { return Err(V8BindingError::JavaScriptException); }
+            if state.execution_tasks_stopped() || identity != (state.document_root(), state.document_generation(), state.document_stream_epoch())
+                || canvas_receiver_node(scope, &state, &args)? != canvas { return Err(V8BindingError::Message("InvalidStateError".into())); }
+            let obsolete = {
+                let mut states = state.canvas_draw_states.borrow_mut();
+                let text = &mut states.entry(canvas).or_default().text;
+                if name == "letterSpacing" { text.letter_spacing.replace(Rc::new(spacing)) }
+                else { text.word_spacing.replace(Rc::new(spacing)) }
+            };
+            drop(obsolete);
+            Ok(())
+        })();
+        if let Err(error) = result { throw_binding_error(scope, &error); }
         return;
     }
     if name == "font" {
@@ -310,6 +352,20 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
         .or_default()
         .text
         .set(&name, &value);
+}
+
+struct SpacingAdmission {
+    allocation: std::sync::Arc<BindingRetainedAllocation>,
+    cancelled: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+}
+impl oryn_layout::cssom::native_import_graph::ImportAdmission for SpacingAdmission {
+    fn checkpoint(&self) -> Result<(), String> {
+        if (self.cancelled)() { Err("Canvas spacing owner retired".into()) } else { Ok(()) }
+    }
+    fn reserve(&self, bytes: usize) -> Result<std::sync::Arc<dyn Send + Sync>, String> {
+        self.checkpoint()?;
+        self.allocation.reserve(bytes)
+    }
 }
 
 #[cfg(test)]

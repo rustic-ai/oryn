@@ -1630,6 +1630,8 @@ interface TextMetrics {
 
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  attribute DOMString letterSpacing;
+  attribute DOMString wordSpacing;
   attribute CanvasFontKerning fontKerning;
   attribute CanvasFontStretch fontStretch;
   attribute CanvasFontVariantCaps fontVariantCaps;
@@ -1713,6 +1715,8 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  attribute DOMString letterSpacing;
+  attribute DOMString wordSpacing;
   attribute CanvasFontKerning fontKerning;
   attribute CanvasFontStretch fontStretch;
   attribute CanvasFontVariantCaps fontVariantCaps;
