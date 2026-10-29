@@ -1504,6 +1504,15 @@ interface HTMLTemplateElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLMediaElement : HTMLElement {
+  const unsigned short NETWORK_EMPTY = 0;
+  const unsigned short NETWORK_IDLE = 1;
+  const unsigned short NETWORK_LOADING = 2;
+  const unsigned short NETWORK_NO_SOURCE = 3;
+  const unsigned short HAVE_NOTHING = 0;
+  const unsigned short HAVE_METADATA = 1;
+  const unsigned short HAVE_CURRENT_DATA = 2;
+  const unsigned short HAVE_FUTURE_DATA = 3;
+  const unsigned short HAVE_ENOUGH_DATA = 4;
   [CEReactions] attribute DOMString loading;
   [CEReactions, Reflect] attribute boolean controls;
   [CEReactions, Reflect=muted] attribute boolean defaultMuted;

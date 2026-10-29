@@ -65213,6 +65213,46 @@ opening.onsuccess = () => {
     }
 
     #[test]
+    fn media_state_constants_match_native_initial_state_and_descriptors() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const constants={NETWORK_EMPTY:0,NETWORK_IDLE:1,NETWORK_LOADING:2,
+                NETWORK_NO_SOURCE:3,HAVE_NOTHING:0,HAVE_METADATA:1,
+                HAVE_CURRENT_DATA:2,HAVE_FUTURE_DATA:3,HAVE_ENOUGH_DATA:4};
+            for(const [name,value] of Object.entries(constants)) {
+                for(const target of [HTMLMediaElement,HTMLMediaElement.prototype]) {
+                    const d=Object.getOwnPropertyDescriptor(target,name);
+                    if(!d||d.value!==value||d.writable||!d.enumerable||d.configurable)
+                        throw Error('media constant descriptor '+name);
+                    if(Reflect.set(target,name,99)||Reflect.deleteProperty(target,name))
+                        throw Error('mutable media constant '+name);
+                }
+                for(const tag of ['audio','video']) {
+                    const element=document.createElement(tag);
+                    if(element[name]!==value||Object.hasOwn(element,name))
+                        throw Error('media constant inheritance '+tag+' '+name);
+                }
+            }
+            for(const tag of ['audio','video']) {
+                const element=document.createElement(tag);
+                if(element.networkState!==element.NETWORK_EMPTY||
+                   element.readyState!==element.HAVE_NOTHING)
+                    throw Error('native initial media state '+tag);
+            }
+            true
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
     fn audio_legacy_factory_preserves_conversion_and_prototype_semantics() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
