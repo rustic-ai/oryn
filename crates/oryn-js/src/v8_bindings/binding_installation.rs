@@ -2,6 +2,55 @@
 //! In particular, state initialization temporaries are gone before template
 //! allocation can trigger V8 GC during reentrant frame creation.
 use super::*;
+
+/// Native callback overrides retain the generated interface's WebIDL metadata.
+/// Inspect only newly constructed native prototypes, before exposing them to
+/// author code; descriptor reads never invoke the member's getter or setter.
+fn restore_native_member_metadata(
+    scope: &mut v8::PinScope,
+    prototype: v8::Local<v8::Object>,
+    interface: &crate::generated::GeneratedInterface,
+) -> Result<(), V8BindingError> {
+    for member in interface.members {
+        if member.static_member || member.name.is_empty() {
+            continue;
+        }
+        let key = v8::String::new(scope, member.name)
+            .ok_or(V8BindingError::Allocation("native member metadata key"))?;
+        let Some(descriptor) = prototype.get_own_property_descriptor(scope, key.into())
+            .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok()) else {
+            continue;
+        };
+        let fields = match member.kind {
+            GeneratedMemberKind::Attribute => [("get", "get ", 0), ("set", "set ", 1)],
+            GeneratedMemberKind::Operation => [("value", "", interface.members.iter()
+                .filter(|overload| overload.kind == GeneratedMemberKind::Operation
+                    && overload.name == member.name && !overload.static_member)
+                .map(|overload| overload.arity).min().unwrap_or(member.arity)), ("", "", 0)],
+            _ => continue,
+        };
+        for (field, prefix, arity) in fields {
+            if field.is_empty() { continue; }
+            let field = v8::String::new(scope, field)
+                .ok_or(V8BindingError::Allocation("native member descriptor field"))?;
+            let Some(function) = descriptor.get(scope, field.into())
+                .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok()) else {
+                continue;
+            };
+            let name = v8::String::new(scope, &format!("{prefix}{}", member.name))
+                .ok_or(V8BindingError::Allocation("native member function name"))?;
+            function.set_name(name);
+            let length = v8::String::new(scope, "length")
+                .ok_or(V8BindingError::Allocation("native member function length"))?;
+            let arity = v8::Integer::new(scope, i32::from(arity));
+            if function.define_own_property(scope, length.into(), arity.into(),
+                v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM) != Some(true) {
+                return Err(V8BindingError::Allocation("native member function metadata"));
+            }
+        }
+    }
+    Ok(())
+}
 #[inline(never)]
 pub(super) fn create_state(
     scope: &mut v8::PinScope,
@@ -981,11 +1030,13 @@ pub(super) fn install_interfaces(
                 let prototype = v8::Local::<v8::Object>::try_from(interface_prototype)
                     .map_err(|_| V8BindingError::Allocation("canvas context prototype"))?;
                 install_canvas_context_members(scope, prototype)?;
+                restore_native_member_metadata(scope, prototype, interface)?;
             }
             if interface.name == "OffscreenCanvas" {
                 let prototype = v8::Local::<v8::Object>::try_from(interface_prototype)
                     .map_err(|_| V8BindingError::Allocation("OffscreenCanvas prototype"))?;
                 offscreen_canvas::install_members(scope, prototype)?;
+                restore_native_member_metadata(scope, prototype, interface)?;
             }
             if matches!(
                 interface.name,

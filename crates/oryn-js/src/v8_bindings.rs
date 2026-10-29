@@ -54463,8 +54463,24 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             if(Object.hasOwn(first,'fillRect')||Object.hasOwn(first,'canvas')||Object.hasOwn(first,'fillStyle'))throw Error('own interface members');
             const owner=Object.getOwnPropertyDescriptor(prototype,'canvas');
             if(!owner.enumerable||!owner.configurable||owner.set!==undefined)throw Error('owner descriptor');
+            if(owner.get.name!=='get canvas'||owner.get.length!==0)throw Error('owner getter metadata');
+            for(const Interface of [CanvasRenderingContext2D,OffscreenCanvasRenderingContext2D,OffscreenCanvas]) {
+                for(const name of Object.getOwnPropertyNames(Interface.prototype)) {
+                    if(name==='constructor')continue;
+                    const descriptor=Object.getOwnPropertyDescriptor(Interface.prototype,name);
+                    if(descriptor.get&&descriptor.get.name!=='get '+name)throw Error(Interface.name+' getter name '+name);
+                    if(descriptor.set&&descriptor.set.name!=='set '+name)throw Error(Interface.name+' setter name '+name);
+                    if(typeof descriptor.value==='function'&&descriptor.value.name!==name)throw Error(Interface.name+' method name '+name);
+                }
+            }
+            for(const name of ['fillStyle','strokeStyle','globalAlpha','font','lineWidth','fontVariantCaps']) {
+                const descriptor=Object.getOwnPropertyDescriptor(prototype,name);
+                if(descriptor.get.name!=='get '+name||descriptor.get.length!==0)throw Error('getter metadata '+name);
+                if(descriptor.set.name!=='set '+name||descriptor.set.length!==1)throw Error('setter metadata '+name);
+            }
             for(const [name,length] of [['fillRect',4],['clearRect',4],['drawImage',3],['getImageData',4],['putImageData',3],['createImageData',1],['setTransform',0]]) {
                 if(prototype[name].length!==length)throw Error('arity '+name);
+                if(prototype[name].name!==name)throw Error('operation name '+name);
                 let error;try{new prototype[name]()}catch(e){error=e}
                 if(!(error instanceof TypeError))throw Error('constructable method '+name);
             }
