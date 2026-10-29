@@ -276,9 +276,17 @@ mod tests {
             eq(a.origin,'https://other.test:8443');eq(a.host,'other.test:8443');eq(a.port,'8443');eq(a.hash,'#frag');
             a.search='';eq(a.search,'');eq(a.hash,'#frag');
             a.href='relative';const base=document.createElement('base');base.href='https://base.test/dir/';document.head.appendChild(base);
+            const stringify=Object.getPrototypeOf(a).toString;
+            eq(stringify.length,0);eq(stringify.call(a),a.href);
+            Object.defineProperty(a,'href',{value:'author replacement',configurable:true});
+            eq(stringify.call(a),'https://base.test/dir/relative');delete a.href;
+            for(const invalid of [{},document,document.createElement('div')]) {
+                let rejected=false;try{stringify.call(invalid)}catch(e){rejected=e instanceof TypeError}eq(rejected,true);
+            }
             eq(a.href,'https://base.test/dir/relative');base.remove();eq(a.href,'https://example.test/relative');
             const other=document.implementation.createHTMLDocument('other');
             other.head.innerHTML='<base href="https://owner.test/">';other.adoptNode(a);eq(a.href,'https://owner.test/relative');
+            eq(stringify.call(a),a.href);
             a.href='https://owner.test/?一';eq(a.search,'?%E4%B8%80');
           }
           'ok'

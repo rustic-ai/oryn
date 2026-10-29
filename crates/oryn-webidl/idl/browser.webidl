@@ -2216,7 +2216,7 @@ interface HTMLAnchorElement : HTMLElement {
   [CEReactions] attribute DOMString rel;
   [CEReactions] attribute USVString ping;
   [CEReactions] attribute DOMString name;
-  [CEReactions] attribute USVString href;
+  [CEReactions] stringifier attribute USVString href;
   readonly attribute USVString origin;
   [CEReactions] attribute USVString protocol;
   [CEReactions] attribute USVString username;
@@ -2243,7 +2243,7 @@ interface HTMLAreaElement : HTMLElement {
   [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
   [CEReactions] attribute DOMString rel;
   [CEReactions] attribute USVString ping;
-  [CEReactions] attribute USVString href;
+  [CEReactions] stringifier attribute USVString href;
   readonly attribute USVString origin;
   [CEReactions] attribute USVString protocol;
   [CEReactions] attribute USVString username;

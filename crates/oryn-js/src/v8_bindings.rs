@@ -39458,6 +39458,9 @@ fn call_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if matches!(interface, "HTMLAnchorElement" | "HTMLAreaElement") && member == "toString" {
+        return hyperlinks::get(scope, state, node, "href").map(Some);
+    }
     if interface == "HTMLTableElement" && matches!(member, "createCaption" | "deleteCaption" | "createTHead" | "deleteTHead" | "createTFoot" | "deleteTFoot" | "createTBody") {
         let tag = match member { "createCaption" | "deleteCaption" => "caption", "createTHead" | "deleteTHead" => "thead", "createTFoot" | "deleteTFoot" => "tfoot", _ => "tbody" };
         let existing = table_part(&state.dom.borrow(), node, tag)?;

@@ -181,6 +181,18 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
         .filter(|member| !member.is_empty())
         .map(parse_member)
         .collect::<Result<Vec<_>, _>>()?;
+    let stringifiers = members.iter().filter_map(|member| match member {
+        Member::Attribute { type_name, extended_attributes, .. }
+            if has_extended_attribute(extended_attributes, "Stringifier") => Some(type_name.clone()),
+        _ => None,
+    }).collect::<Vec<_>>();
+    if stringifiers.len() > 1 || (!stringifiers.is_empty() && members.iter().any(|member|
+        matches!(member, Member::Operation { name, .. } if name == "toString"))) {
+        return Err(ParseError::UnsupportedMember("conflicting stringifier declarations".into()));
+    }
+    if let Some(type_name) = stringifiers.first() {
+        members.push(parse_member(&format!("{type_name} toString()"))?);
+    }
     let setlike_count=members.iter().filter(|member|matches!(member,Member::Setlike{..})).count();
     if setlike_count>1||(setlike_count!=0&&members.iter().any(|member|matches!(member,Member::Iterable{..}))){
         return Err(ParseError::UnsupportedMember("multiple collection declarations".into()));
@@ -676,6 +688,15 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
 
 fn parse_member(member: &str) -> Result<Member, ParseError> {
     let (mut extended_attributes, member) = take_extended_attributes(member.trim())?;
+    let member = if let Some(rest) = member.strip_prefix("stringifier ") {
+        let attribute = rest.strip_prefix("readonly ").unwrap_or(rest);
+        if !attribute.starts_with("attribute DOMString ")
+            && !attribute.starts_with("attribute USVString ") {
+            return Err(ParseError::UnsupportedMember(member.into()));
+        }
+        extended_attributes.push(ExtendedAttribute { name: "Stringifier".into(), value: None });
+        rest
+    } else { member };
     let member = if let Some(rest) = member.strip_prefix("static ") {
         extended_attributes.push(ExtendedAttribute {
             name: "Static".into(),
@@ -1287,6 +1308,20 @@ fn rust_constant(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stringifier_attributes_generate_native_operation_without_reaction_forwarding() {
+        let interface = super::parse_interface("interface Link { [CEReactions] stringifier attribute USVString href; };").unwrap();
+        assert!(matches!(&interface.members[0],super::Member::Attribute { name, extended_attributes, .. }
+            if name=="href" && super::has_extended_attribute(extended_attributes,"CEReactions")
+                && super::has_extended_attribute(extended_attributes,"Stringifier")));
+        assert!(matches!(&interface.members[1],super::Member::Operation { name, return_type, arguments, extended_attributes, .. }
+            if name=="toString" && return_type=="USVString" && arguments.is_empty() && extended_attributes.is_empty()));
+        for input in ["interface Bad { stringifier attribute long value; };",
+            "interface Bad { stringifier attribute DOMString first; stringifier attribute DOMString second; };",
+            "interface Bad { stringifier attribute USVString href; DOMString toString(); };"] {
+            assert!(super::parse_interface(input).is_err());
+        }
+    }
     include!("setlike_controls.rs");
     use super::*;
 
