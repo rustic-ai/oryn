@@ -536,9 +536,10 @@ mod tests {
     }
 }
 
-const RELATIONS: [&str; 11] = [
+const RELATIONS: [&str; 12] = [
     "interestfor",
     "commandfor",
+    "popovertarget",
     "aria-actions",
     "aria-activedescendant",
     "aria-controls",

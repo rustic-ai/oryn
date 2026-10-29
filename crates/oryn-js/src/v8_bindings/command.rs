@@ -153,25 +153,35 @@ pub(super) fn set_target(
     source: NodeId,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    set_reference_target(scope, state, source, value, "commandfor", "commandForElement")
+}
+pub(super) fn set_reference_target(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    source: NodeId,
+    value: v8::Local<v8::Value>,
+    attribute: &str,
+    member: &str,
+) -> Result<(), V8BindingError> {
     let object = wrap_node(scope, state, source)?;
-    let key = aria::migration_key(scope, "commandfor", true)?;
+    let key = aria::migration_key(scope, attribute, true)?;
     if value.is_null_or_undefined() {
         state
             .dom
             .borrow_mut()
-            .set_command_for_element(source, None)?;
+            .set_accessibility_references(source, attribute, false, None)?;
         object.delete_private(scope, key);
         return Ok(());
     }
     let Some((owner, node)) = node_identity::argument(scope, value)? else {
-        throw_type_error(scope, "commandForElement requires an Element");
+        throw_type_error(scope, &format!("{member} requires an Element"));
         return Err(V8BindingError::JavaScriptException);
     };
     if !matches!(
         owner.dom.borrow().arena().get(node)?.kind,
         NodeKind::Element { .. }
     ) {
-        throw_type_error(scope, "commandForElement requires an Element");
+        throw_type_error(scope, &format!("{member} requires an Element"));
         return Err(V8BindingError::JavaScriptException);
     }
     let track = {
@@ -195,7 +205,7 @@ pub(super) fn set_target(
         .ok_or(V8BindingError::JavaScriptException)?;
     state.dom.borrow_mut().set_accessibility_references(
         source,
-        "commandfor",
+        attribute,
         false,
         Some(if Rc::ptr_eq(&owner.dom, &state.dom) {
             vec![node]

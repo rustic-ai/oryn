@@ -35591,6 +35591,18 @@ fn get_attribute_value<'s>(
             None => Ok(v8::null(scope).into()),
         };
     }
+    if matches!(interface, "HTMLButtonElement" | "HTMLInputElement") && member == "popoverTargetElement" {
+        aria::reconcile_node(scope, state, node)?;
+        let target = state.dom.borrow().popover_target_element(node)?;
+        return optional_node(scope, state, target);
+    }
+    if matches!(interface, "HTMLButtonElement" | "HTMLInputElement") && member == "popoverTargetAction" {
+        let dom = state.dom.borrow();
+        let raw = dom.attribute_in_null_namespace(node, "popovertargetaction")?.unwrap_or("");
+        let value = if raw.eq_ignore_ascii_case("show") { "show" }
+            else if raw.eq_ignore_ascii_case("hide") { "hide" } else { "toggle" };
+        return v8_string(scope, value);
+    }
     if interface == "HTMLButtonElement" && member == "command" {
         return v8_string(scope, &command::value(state, node)?);
     }
@@ -38040,6 +38052,18 @@ fn set_attribute_value<'s>(
             .dom
             .borrow_mut()
             .set_shadow_reference_target(node, value)?;
+        return Ok(());
+    }
+    if matches!(interface, "HTMLButtonElement" | "HTMLInputElement") && member == "popoverTargetElement" {
+        return command::set_reference_target(scope, state, node, value, "popovertarget", "popoverTargetElement");
+    }
+    if matches!(interface, "HTMLButtonElement" | "HTMLInputElement") && member == "popoverTargetAction" {
+        let object = wrap_node(scope, state, node)?;
+        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = rust_string_preserving_utf16(scope, value)?;
+        let (owner, node) = node_identity::argument(scope, object.into())?
+            .ok_or(V8BindingError::Allocation("popover receiver after conversion"))?;
+        owner.dom.borrow_mut().set_attribute(node, "popovertargetaction", value)?;
         return Ok(());
     }
     if interface == "HTMLButtonElement" && member == "commandForElement" {

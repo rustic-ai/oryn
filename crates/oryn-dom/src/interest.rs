@@ -133,11 +133,21 @@ impl DomRuntime {
         )
     }
     pub fn command_for_element(&self, source: NodeId) -> Result<Option<NodeId>, DomError> {
-        let record = self.arena.get(source)?;
         if !self.is_element(source, "http://www.w3.org/1999/xhtml", "button") {
             return Ok(None);
         }
-        if let Some(references) = record.explicit_accessibility_references("commandfor") {
+        self.invoker_reference_element(source, "commandfor")
+    }
+    pub fn popover_target_element(&self, source: NodeId) -> Result<Option<NodeId>, DomError> {
+        if !self.is_element(source, "http://www.w3.org/1999/xhtml", "button")
+            && !self.is_element(source, "http://www.w3.org/1999/xhtml", "input") {
+            return Ok(None);
+        }
+        self.invoker_reference_element(source, "popovertarget")
+    }
+    fn invoker_reference_element(&self, source: NodeId, attribute: &str) -> Result<Option<NodeId>, DomError> {
+        let record = self.arena.get(source)?;
+        if let Some(references) = record.explicit_accessibility_references(attribute) {
             let Some(target) = references.first().copied() else {
                 return Ok(None);
             };
@@ -156,7 +166,7 @@ impl DomRuntime {
         }
         let Some(id) = record
             .attributes
-            .get_null("commandfor")
+            .get_null(attribute)
             .filter(|id| !id.is_empty())
         else {
             return Ok(None);

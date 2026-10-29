@@ -326,7 +326,7 @@ impl Finish {
             self.phase = 12;
             return Ok(false);
         }
-        if let Some((target, force)) = top_layer::invoker_target(owner, node)? {
+        if let Some((target, force)) = top_layer::invoker_target(scope, owner, node)? {
             self.popover = Some((
                 owner.clone(),
                 top_layer::PendingToggle::new(owner, target, force, Some(node))?,

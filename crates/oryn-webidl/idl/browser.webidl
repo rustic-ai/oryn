@@ -4692,6 +4692,12 @@ partial interface HTMLButtonElement {
   [CEReactions] attribute DOMString command;
   [CEReactions] attribute Element? commandForElement;
 };
+interface mixin PopoverTargetAttributes {
+  [CEReactions] attribute Element? popoverTargetElement;
+  [CEReactions] attribute DOMString popoverTargetAction;
+};
+HTMLButtonElement includes PopoverTargetAttributes;
+HTMLInputElement includes PopoverTargetAttributes;
 [Exposed=Window]
 interface CommandEvent : Event {
   constructor(DOMString type, optional CommandEventInit eventInitDict = {});

@@ -408,9 +408,18 @@ impl Drop for Pointer {
 }
 
 pub(super) fn invoker_target(
-    state: &V8BindingState,
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
     source: NodeId,
 ) -> Result<Option<(NodeId, Option<bool>)>, V8BindingError> {
+    {
+        let dom = state.dom.borrow();
+        if !dom.is_element(source, "http://www.w3.org/1999/xhtml", "button")
+            && !dom.is_element(source, "http://www.w3.org/1999/xhtml", "input") {
+            return Ok(None);
+        }
+    }
+    aria::reconcile_node(scope, state, source)?;
     let target = {
         let dom = state.dom.borrow();
         if !dom.is_element(source, "http://www.w3.org/1999/xhtml", "button")
@@ -424,11 +433,9 @@ pub(super) fn invoker_target(
         {
             return Ok(None);
         }
-        let Some(id) = dom.attribute_in_null_namespace(source, "popovertarget")? else {
-            return Ok(None);
-        };
-        let root = dom.control_tree_root(source)?;
-        let Some(target) = dom.get_element_by_id(root, id)? else {
+        let Some(target) = dom.popover_target_element(source)?
+            .map(|target| dom.resolve_shadow_reference_target(target))
+            .transpose()?.flatten() else {
             return Ok(None);
         };
         if dom
@@ -454,7 +461,7 @@ pub(super) fn invoke(
     state: &Rc<V8BindingState>,
     source: NodeId,
 ) -> Result<bool, V8BindingError> {
-    let Some((target, force)) = invoker_target(state, source)? else {
+    let Some((target, force)) = invoker_target(scope, state, source)? else {
         return Ok(false);
     };
     toggle(scope, state, target, force, Some(source))?;
@@ -978,6 +985,48 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
+    }
+    #[test]
+    fn popover_invoker_reflection_drives_native_activation() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body><button id='source' type='button'></button><div id='p' popover></div></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(()=>{
+            const eq=(a,b,m)=>{if(a!==b)throw Error(m)};
+            const p=document.getElementById('p');
+            for(const tag of ['button','input']) {
+                const e=document.createElement(tag);document.body.append(e);
+                eq(e.popoverTargetElement,null,'unset target');eq(e.popoverTargetAction,'toggle','unset action');
+                e.setAttribute('popovertarget','p');eq(e.popoverTargetElement,p,'native ID lookup');
+                p.id='changed';eq(e.popoverTargetElement,null,'live ID lookup');p.id='p';
+                e.popoverTargetElement=p;eq(e.popoverTargetElement,p,'explicit target');
+                eq(e.getAttribute('popovertarget'),'','explicit attribute storage');
+                p.id='changed';eq(e.popoverTargetElement,p,'explicit identity survives ID change');p.id='p';
+                for(const [raw,expected] of [['SHOW','show'],['Hide','hide'],['toggle','toggle'],['invalid','toggle'],['','toggle']]) {
+                    e.popoverTargetAction=raw;eq(e.popoverTargetAction,expected,'canonical action');
+                    eq(e.getAttribute('popovertargetaction'),raw,'raw action');
+                }
+                let rejected=false;try{e.popoverTargetElement={}}catch(error){rejected=error instanceof TypeError}
+                eq(rejected,true,'Element conversion');eq(e.popoverTargetElement,p,'failed conversion preserves target');
+                const foreign=document.implementation.createHTMLDocument('other');foreign.adoptNode(e);
+                eq(e.popoverTargetElement,null,'different document excludes target');document.body.append(e);
+                eq(e.popoverTargetElement,p,'return to document preserves identity');
+                e.setAttribute('popovertarget','missing');eq(e.popoverTargetElement,null,'attribute replacement invalidates explicit target');
+                e.popoverTargetElement=null;eq(e.hasAttribute('popovertarget'),false,'null removes attribute');
+                e.remove();
+            }
+            const b=document.getElementById('source');b.popoverTargetElement=p;b.popoverTargetAction='SHOW';
+            return true;
+        })()"#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        let node = state.dom.borrow().find_by_id("source").unwrap();
+        assert!(invoke(scope, &state, node).unwrap());
+        let source = v8::String::new(scope, "document.getElementById('p').matches(':popover-open')").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
     }
     #[test]
     fn popover_native_state_reentrancy_and_coalesced_toggle_payload() {
