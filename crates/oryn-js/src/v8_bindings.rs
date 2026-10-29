@@ -205,6 +205,7 @@ mod canvas_path;
 mod canvas_path_svg;
 mod canvas_text_path;
 mod canvas_text_state;
+mod canvas_text_metrics;
 mod rect_lists;
 use canvas_composite::Composite;
 mod abort_any;
@@ -1275,6 +1276,7 @@ enum PlatformObjectRecord {
     TouchList(Vec<v8::Global<v8::Object>>),
     Path2D(Rc<RefCell<canvas_path::CanvasPath>>),
     CanvasGradient(Rc<RefCell<canvas_gradients::Gradient>>),
+    CanvasTextMetrics(canvas_text_metrics::Record),
     CanvasPattern(Rc<RefCell<canvas_patterns::Pattern>>),
     XhrUpload,
     Crypto {
@@ -13105,6 +13107,7 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Sanitizer"
+            | "TextMetrics"
             | "CanvasGradient"
             | "CanvasPattern"
             | "EditContext"
@@ -26081,6 +26084,7 @@ fn get_platform_attribute<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "TextMetrics" { return canvas_text_metrics::get(scope, object, member); }
     if interface=="EditContext"&&!member.starts_with("on"){return edit_context::get(scope,object,member);}
     if matches!(interface,"TextUpdateEvent"|"TextFormat"|"CharacterBoundsUpdateEvent"){return edit_context_events::get(scope,object,interface,member);}
     if matches!(
@@ -41009,6 +41013,7 @@ fn install_canvas_context_members(
     canvas_gradients::install_factories(scope, context)?;
     canvas_patterns::install_factory(scope, context)?;
     canvas_text_state::install(scope, context)?;
+    canvas_text_metrics::install(scope, context)?;
     for name in [
         "strokeStyle",
         "lineWidth",

@@ -1204,7 +1204,11 @@ impl BindingLayoutProvider for LiveLayoutProvider {
                 if borrowed.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document) {
                     return Err("foreign canvas font target".into());
                 }
-                Ok(identity)
+                if !matches!(&borrowed.arena().get(request.canvas).map_err(|e| e.to_string())?.kind,
+                    NodeKind::Element { name, .. } if name.local.as_ref() == "canvas" && name.ns.as_ref() == "http://www.w3.org/1999/xhtml") {
+                    return Err("canvas font target is not an HTML canvas".into());
+                }
+                Ok((identity, borrowed.is_connected(request.canvas).map_err(|e| e.to_string())?))
             };
             let identity = validate().map_err(Error::Native)?;
             let witness = (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get());
@@ -1223,8 +1227,12 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             let cancellation = self.native_retained_allocation.try_borrow().map_err(|_| Error::Native("canvas font admission borrow conflict".into()))?.as_ref().cloned();
             let cancelled = cancellation.map(|scope| Arc::new(move || scope.owner_cancelled()) as Arc<dyn Fn() -> bool + Send + Sync>);
             let canvas = (u64::from(request.canvas.generation) << 32) | u64::from(request.canvas.slot);
+            // Detached canvases use the initial 10px font source. Connection
+            // is a verified DOM fact, not inferred from a missing native mirror:
+            // an unexpectedly absent connected target must still fail closed.
+            let source_element = request.source_element && identity.1;
             let result = self.style_engine.try_borrow_mut().map_err(|_| Error::Native("canvas font engine borrow conflict".into()))?
-                .resolve_canvas_font_source_at_controlled(&input.input, &oryn_layout::LayoutLimits::default(), self.animation_time.get() / 1000., canvas, request.source_element, &parsed, admission.as_ref(), cancelled)
+                .resolve_canvas_font_source_at_controlled(&input.input, &oryn_layout::LayoutLimits::default(), self.animation_time.get() / 1000., canvas, source_element, &parsed, admission.as_ref(), cancelled)
                 .map_err(|e| Error::Native(e.to_string()))?;
             admission.checkpoint().map_err(Error::Native)?;
             if validate().map_err(Error::Native)? != identity { return Err(Error::Native("canvas font owner changed during computation".into())); }
@@ -20286,6 +20294,65 @@ mod tests {
         assert!(provider.validate_canvas_text_input(&state.dom(), &input).is_err());
         assert_eq!(shape.ink_bounds().unwrap_err(), oryn_layout::LayoutError::Cancelled);
         assert_eq!(shape.font_metrics().unwrap_err(), oryn_layout::LayoutError::Cancelled);
+    }
+    #[test]
+    fn native_canvas_font_public_measurement_has_real_immutable_metrics() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const ctx=document.getElementById('c').getContext('2d');
+            const names=['width','actualBoundingBoxLeft','actualBoundingBoxRight','fontBoundingBoxAscent','fontBoundingBoxDescent','actualBoundingBoxAscent','actualBoundingBoxDescent','emHeightAscent','emHeightDescent','hangingBaseline','alphabeticBaseline','ideographicBaseline'];
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            ctx.font='20px monospace';
+            const m=ctx.measureText('Ag');
+            check(m instanceof TextMetrics&&Object.prototype.toString.call(m)==='[object TextMetrics]','native metrics brand');
+            for(const name of names){
+                check(Number.isFinite(m[name]),name+' finite');
+                const d=Object.getOwnPropertyDescriptor(TextMetrics.prototype,name);
+                check(d&&typeof d.get==='function'&&d.set===undefined&&d.enumerable&&d.configurable,name+' descriptor');
+                let error;try{d.get.call(Object.create(TextMetrics.prototype))}catch(e){error=e}
+                check(error instanceof TypeError,name+' forged receiver');
+            }
+            check(m.width>0&&m.actualBoundingBoxRight>0&&m.actualBoundingBoxAscent>0&&m.fontBoundingBoxAscent>0,'native glyph metrics');
+            let error;try{new TextMetrics()}catch(e){error=e}check(error instanceof TypeError,'illegal metrics construction');
+            check(ctx.measureText.length===1&&ctx.measureText.name==='measureText','method metadata');
+            error=undefined;try{ctx.measureText()}catch(e){error=e}check(error instanceof TypeError,'required argument');
+            let conversions=0;
+            const a=ctx.measureText({toString(){conversions++;return 'a\r\nb'}});
+            check(conversions===1&&a.width===ctx.measureText('a  b').width,'one conversion and independent CRLF');
+            check(ctx.measureText('a\tb').width===ctx.measureText('a b').width,'tab replacement');
+            error=undefined;try{ctx.measureText(Symbol())}catch(e){error=e}check(error instanceof TypeError,'symbol conversion');
+            conversions=0;error=undefined;
+            try{CanvasRenderingContext2D.prototype.measureText.call({}, {toString(){conversions++;return 'x'}})}catch(e){error=e}
+            check(error instanceof TypeError&&conversions===0,'brand before conversion');
+            const before=names.map(name=>m[name]);
+            ctx.setTransform(2,0,0,3,10,20);
+            const transformed=ctx.measureText('Ag');
+            check(names.every((name,i)=>transformed[name]===before[i]),'metrics independent of CTM');
+            ctx.textAlign='right';const right=ctx.measureText('Ag');
+            check(right.width===m.width&&Math.abs(right.actualBoundingBoxLeft-m.actualBoundingBoxLeft-m.width)<1e-6,'alignment anchor');
+            ctx.textAlign='left';ctx.textBaseline='top';const top=ctx.measureText('Ag');
+            check(top.emHeightAscent===0&&top.width===m.width,'baseline projection');
+            ctx.textBaseline='alphabetic';ctx.font='10px monospace';
+            check(Math.abs(ctx.measureText('Ag').width*2-m.width)<1e-6,'native size scaling');
+            const empty=ctx.measureText('');check(empty.width===0&&empty.actualBoundingBoxAscent===0&&empty.fontBoundingBoxAscent>0,'empty text metric font');
+            ctx.font='0px monospace';const zero=ctx.measureText('Ag');
+            check(names.every(name=>zero[name]===0),'zero font metrics');
+            ctx.reset();check(names.every((name,i)=>m[name]===before[i]),'immutable snapshot after reset');
+            const off=new OffscreenCanvas(20,20).getContext('2d');off.font='20px monospace';
+            const om=off.measureText('Ag');check(om instanceof TextMetrics&&om.width===m.width,'offscreen native measurement');
+            const detached=document.createElement('canvas').getContext('2d');detached.font='20px monospace';
+            check(detached.measureText('Ag').width===m.width,'detached native measurement');
+            detached.canvas.style.fontSize='80px';detached.font='2em monospace';
+            check(detached.measureText('Ag').width===m.width,'non-rendered initial font source');
+            ctx.font='20px monospace';ctx.direction='inherit';ctx.textAlign='start';
+            document.getElementById('c').dir='rtl';const inheritedRTL=ctx.measureText('Ag');
+            check(Math.abs(inheritedRTL.actualBoundingBoxLeft-m.actualBoundingBoxLeft-m.width)<1e-6,'current inherited RTL source');
+            document.getElementById('c').dir='ltr';
+            check(ctx.measureText('Ag').actualBoundingBoxLeft===m.actualBoundingBoxLeft,'current inherited LTR source');
+            const reentrant=ctx.measureText({toString(){ctx.font='10px monospace';return 'Ag'}});
+            check(Math.abs(reentrant.width*2-m.width)<1e-6,'capture drawing state after conversion');
+        })();
+        "#).unwrap();
     }
     #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {

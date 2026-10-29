@@ -42,6 +42,36 @@ pub struct CanvasTextShape {
 }
 
 impl CanvasTextShape {
+    pub fn measure_text(&self, text: &str, baseline: metrics::Baseline, alignment: f64) -> Result<metrics::Metrics, LayoutError> {
+        use icu_properties::{CodePointMapData, PropertyNamesShort, props::Script};
+        self.checkpoint()?;
+        let scripts = CodePointMapData::<Script>::new();
+        let mut script = Script::Latin;
+        for (index, ch) in text.chars().enumerate() {
+            if index % 1024 == 0 { self.checkpoint()?; }
+            let candidate = scripts.get(ch);
+            if !matches!(candidate, Script::Common | Script::Inherited | Script::Unknown) {
+                script = candidate;
+                break;
+            }
+        }
+        // OpenType's legacy script tags differ from ISO 15924 for these
+        // scripts; BASE uses these tags, not the newer GSUB shaping tags.
+        let bytes = match script {
+            Script::Hiragana | Script::Katakana => *b"kana",
+            Script::Lao => *b"lao ", Script::Yi => *b"yi  ",
+            Script::Nko => *b"nko ", Script::Vai => *b"vai ",
+            _ => {
+                let names = PropertyNamesShort::<Script>::new();
+                let name = names.get(script).unwrap_or("Latn");
+                let mut tag = [b' '; 4];
+                if name.len() == 4 { tag.copy_from_slice(name.as_bytes()); }
+                tag[0].make_ascii_lowercase();
+                tag
+            }
+        };
+        self.measure(skrifa::raw::types::Tag::new(&bytes), baseline, alignment)
+    }
     fn checkpoint(&self) -> Result<(), LayoutError> {
         super::layout_checkpoint(&self.cancellation.0)
     }

@@ -670,6 +670,11 @@ impl std::fmt::Debug for CanvasFontResolution {
         formatter.debug_struct("CanvasFontResolution").field("canvas", &self.canvas).field("css", &self.css.value).finish_non_exhaustive()
     }
 }
+impl CanvasFontResolution {
+    pub fn inherited_rtl(&self) -> bool {
+        self.style.get_inherited_box().direction == style::properties::generated::longhands::direction::computed_value::T::Rtl
+    }
+}
 impl StyleEngine {
     pub fn resolve_canvas_font_at_controlled(
         &mut self, input: &LayoutInput, limits: &LayoutLimits, now: f64,

@@ -1608,8 +1608,25 @@ enum CanvasTextAlign { "start", "end", "left", "right", "center" };
 enum CanvasTextBaseline { "top", "hanging", "middle", "alphabetic", "ideographic", "bottom" };
 enum CanvasDirection { "ltr", "rtl", "inherit" };
 
+[Exposed=(Window,Worker)]
+interface TextMetrics {
+  readonly attribute double width;
+  readonly attribute double actualBoundingBoxLeft;
+  readonly attribute double actualBoundingBoxRight;
+  readonly attribute double fontBoundingBoxAscent;
+  readonly attribute double fontBoundingBoxDescent;
+  readonly attribute double actualBoundingBoxAscent;
+  readonly attribute double actualBoundingBoxDescent;
+  readonly attribute double emHeightAscent;
+  readonly attribute double emHeightDescent;
+  readonly attribute double hangingBaseline;
+  readonly attribute double alphabeticBaseline;
+  readonly attribute double ideographicBaseline;
+};
+
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  TextMetrics measureText(DOMString text);
   attribute DOMString font;
   attribute CanvasTextAlign textAlign;
   attribute CanvasTextBaseline textBaseline;
@@ -1688,6 +1705,7 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  TextMetrics measureText(DOMString text);
   attribute DOMString font;
   attribute CanvasTextAlign textAlign;
   attribute CanvasTextBaseline textBaseline;
