@@ -34739,6 +34739,15 @@ fn is_window_handler_alias(state: &V8BindingState, node: NodeId, member: &str) -
             | "onpopstate"
             | "onhashchange"
             | "onstorage"
+            | "onafterprint"
+            | "onbeforeprint"
+            | "onlanguagechange"
+            | "onmessage"
+            | "onmessageerror"
+            | "onoffline"
+            | "ononline"
+            | "onrejectionhandled"
+            | "onunhandledrejection"
     ) {
         return false;
     }
@@ -73589,22 +73598,27 @@ opening.onsuccess = () => {
     }
 
     #[test]
-    fn body_load_alias_follows_owner_document_and_ignores_inert_documents() {
+    fn body_window_handler_aliases_follow_owner_document_and_ignore_inert_documents() {
         check_global_event_prototype_script(
             r#"(()=>{
-          const callback=()=>{};window.onload=callback;
+          for(const member of ['onload','onafterprint','onbeforeprint','onbeforeunload','onlanguagechange','onmessage','onmessageerror','onoffline','ononline','onrejectionhandled','onunhandledrejection','onunload']){
+          const callback=()=>{};window[member]=callback;
           const detached=document.createElement('body');
-          if(detached.onload!==callback)throw Error('detached body lost document Window');
+          if(detached[member]!==callback)throw Error('detached body lost document Window: '+member);
           const frameset=document.createElement('frameset');
-          if(frameset.onload!==callback)throw Error('frameset alias missing');
+          if(frameset[member]!==callback)throw Error('frameset alias missing: '+member);
           const inert=document.implementation.createHTMLDocument('inert');
           const body=inert.body;
-          body.onload=()=>{};
-          if(body.onload!==null||window.onload!==callback)throw Error('inert document acquired Window slot');
+          body[member]=()=>{};
+          if(body[member]!==null||window[member]!==callback)throw Error('inert document acquired Window slot: '+member);
           document.adoptNode(body);
-          if(body.onload!==callback)throw Error('adoption did not change handler owner');
+          if(body[member]!==callback)throw Error('adoption did not change handler owner: '+member);
           inert.adoptNode(detached);
-          if(detached.onload!==null||window.onload!==callback)throw Error('adoption cleared old Window handler');
+          if(detached[member]!==null||window[member]!==callback)throw Error('adoption cleared old Window handler: '+member);
+          inert.adoptNode(frameset);
+          if(frameset[member]!==null||window[member]!==callback)throw Error('frameset adoption cleared old Window handler: '+member);
+          window[member]=null;
+          }
           return true;
         })()"#,
         );
@@ -73758,7 +73772,7 @@ opening.onsuccess = () => {
           globalThis.order=[];
           const body=document.body,frameset=document.createElement('frameset');
           if(!(frameset instanceof HTMLFrameSetElement))throw Error('frameset interface');
-          for(const type of ['pageshow','pagehide']){
+          for(const type of ['pageshow','pagehide','afterprint','beforeprint','beforeunload','languagechange','message','messageerror','offline','online','rejectionhandled','unhandledrejection','unload']){
             order.length=0;const member='on'+type;
             body.setAttribute(member,"order.push('content:'+event.type+':'+(this===window))");
             if(body[member]!==window[member]||frameset[member]!==window[member])throw Error('alias identity');
@@ -75976,10 +75990,11 @@ opening.onsuccess = () => {
             let rejected=false;try{descriptor.get.call(new Event('beforeunload'))}catch(error){rejected=error instanceof TypeError}
             assert(rejected,'BeforeUnloadEvent brand');
             globalThis.beforeEvents=[];
-            onbeforeunload=event=>{
+            document.body.onbeforeunload=event=>{
                 beforeEvents.push([event.isTrusted,event instanceof BeforeUnloadEvent,event.cancelable,event.returnValue]);
                 return 'unsaved changes';
             };
+            assert(onbeforeunload===document.body.onbeforeunload&&document.createElement('frameset').onbeforeunload===onbeforeunload,'native beforeunload aliases');
         "#).unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         assert!(script.run(scope).is_some());
@@ -75998,7 +76013,7 @@ opening.onsuccess = () => {
         );
         let code=v8::String::new(scope,r#"
             assert(beforeEvents.length===3&&beforeEvents.every(row=>row[0]&&row[1]&&row[2]&&row[3]===''),'trusted native beforeunload');
-            onbeforeunload=event=>{event.returnValue='legacy';};
+            document.createElement('frameset').onbeforeunload=event=>{event.returnValue='legacy';};
         "#).unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         assert!(script.run(scope).is_some());

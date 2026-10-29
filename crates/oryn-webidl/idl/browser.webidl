@@ -1244,6 +1244,17 @@ interface HTMLBaseElement : HTMLElement {
 [Exposed=Window]
 interface HTMLBodyElement : HTMLElement {
   [HTMLConstructor] constructor();
+  attribute EventHandler onafterprint;
+  attribute EventHandler onbeforeprint;
+  attribute OnBeforeUnloadEventHandler onbeforeunload;
+  attribute EventHandler onlanguagechange;
+  attribute EventHandler onmessage;
+  attribute EventHandler onmessageerror;
+  attribute EventHandler onoffline;
+  attribute EventHandler ononline;
+  attribute EventHandler onrejectionhandled;
+  attribute EventHandler onunhandledrejection;
+  attribute EventHandler onunload;
   [CEReactions, Reflect] attribute DOMString background;
   [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString text;
   [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString link;
@@ -1261,6 +1272,17 @@ interface HTMLBodyElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLFrameSetElement : HTMLElement {
+  attribute EventHandler onafterprint;
+  attribute EventHandler onbeforeprint;
+  attribute OnBeforeUnloadEventHandler onbeforeunload;
+  attribute EventHandler onlanguagechange;
+  attribute EventHandler onmessage;
+  attribute EventHandler onmessageerror;
+  attribute EventHandler onoffline;
+  attribute EventHandler ononline;
+  attribute EventHandler onrejectionhandled;
+  attribute EventHandler onunhandledrejection;
+  attribute EventHandler onunload;
   [CEReactions, Reflect] attribute DOMString cols;
   [CEReactions, Reflect] attribute DOMString rows;
   attribute EventListener? onpageshow;
@@ -5220,6 +5242,11 @@ interface mixin FontFaceSource {
 };
 Document includes FontFaceSource;
 WorkerGlobalScope includes FontFaceSource;
+
+callback EventHandlerNonNull = any (Event event);
+typedef EventHandlerNonNull? EventHandler;
+callback OnBeforeUnloadEventHandlerNonNull = DOMString? (Event event);
+typedef OnBeforeUnloadEventHandlerNonNull? OnBeforeUnloadEventHandler;
 
 interface mixin GlobalEventHandlers {
   attribute EventHandler onabort;
