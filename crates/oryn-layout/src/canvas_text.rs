@@ -389,6 +389,35 @@ fn shape_with_font_byte_admission(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn canvas_petite_caps_falls_back_to_available_small_caps_glyphs() {
+        let shape = |caps: &str| super::shape("abcABC", &std::collections::BTreeMap::from([
+            ("font-size".into(), "32px".into()),
+            ("font-variant-caps".into(), caps.into()),
+        ]), oryn_common::v4::ViewportState::default(), &[]).unwrap();
+        let normal = shape("normal");
+        for (petite, small) in [("petite-caps", "small-caps"), ("all-petite-caps", "all-small-caps")] {
+            let expected = shape(small);
+            assert_ne!(expected.glyph_runs, normal.glyph_runs, "fixture must contain actual small-cap substitutions");
+            let actual = shape(petite);
+            assert!((actual.width - expected.width).abs() < 0.01, "{petite} must fall back to {small}: {} vs {}", actual.width, expected.width);
+            assert_eq!(actual.glyph_runs, expected.glyph_runs, "fallback must select actual small-cap glyphs, not change a width formula");
+        }
+    }
+    #[test]
+    fn canvas_petite_caps_preserves_explicit_feature_precedence_and_intent() {
+        let shape = |caps: &str, features: &str| super::shape("abcABC", &std::collections::BTreeMap::from([
+            ("font-size".into(), "32px".into()),
+            ("font-variant-caps".into(), caps.into()),
+            ("font-feature-settings".into(), features.into()),
+        ]), oryn_common::v4::ViewportState::default(), &[]).unwrap();
+        let normal = shape("normal", "normal");
+        assert_eq!(shape("normal", "\"pcap\" 1, \"c2pc\" 1").glyph_runs, normal.glyph_runs,
+            "unsupported explicit features alone cannot trigger CSS fallback");
+        assert_eq!(shape("petite-caps", "\"smcp\" 0").glyph_runs, normal.glyph_runs,
+            "explicit settings override fallback defaults");
+        assert_eq!(shape("all-petite-caps", "\"smcp\" 0, \"c2sc\" 0").glyph_runs, normal.glyph_runs);
+    }
+    #[test]
     fn canvas_font_metric_spacing_uses_selected_face_and_nested_math() {
         let shape = |spacing: &str, size: &str| super::shape("abc", &std::collections::BTreeMap::from([
             ("font-size".into(), size.into()), ("letter-spacing".into(), spacing.into()),

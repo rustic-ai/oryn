@@ -86,6 +86,19 @@ impl LineHeight {
     }
 }
 
+/// CSS caps intent retained separately from low-level feature settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FontVariantCaps {
+    #[default]
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+}
+
 /// Properties that define a style.
 #[derive(Clone, PartialEq, Debug)]
 pub enum StyleProperty<'a, B: Brush> {
@@ -103,6 +116,8 @@ pub enum StyleProperty<'a, B: Brush> {
     FontVariations(FontVariations<'a>),
     /// Font feature settings.
     FontFeatures(FontFeatures<'a>),
+    /// High-level CSS caps intent, separate from explicit OpenType settings.
+    FontVariantCaps(FontVariantCaps),
     /// Locale.
     Locale(Option<Language>),
     /// Exact OpenType language-system override, separate from the locale.
@@ -160,6 +175,7 @@ pub struct TextStyle<'family, 'settings, B: Brush> {
     pub font_variations: FontVariations<'settings>,
     /// Font feature settings.
     pub font_features: FontFeatures<'settings>,
+    pub font_variant_caps: FontVariantCaps,
     /// Locale.
     pub locale: Option<Language>,
     pub font_language_override: Option<[u8;4]>,
@@ -209,6 +225,7 @@ impl<B: Brush> Default for TextStyle<'static, 'static, B> {
             font_weight: FontWeight::default(),
             font_variations: FontVariations::empty(),
             font_features: FontFeatures::empty(),
+            font_variant_caps: FontVariantCaps::Normal,
             locale: None,
             font_language_override: None,
             brush: B::default(),

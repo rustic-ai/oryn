@@ -381,6 +381,10 @@ pub(crate) fn style(
         font_weight,
         font_variations: parley::FontVariations::List(Cow::Owned(font_variations)),
         font_features: parley::FontFeatures::List(Cow::Owned(font_features)),
+        font_variant_caps: match font_styles.font_variant_caps {
+            stylo::FontVariantCaps::Normal => parley::FontVariantCaps::Normal,
+            stylo::FontVariantCaps::SmallCaps => parley::FontVariantCaps::SmallCaps,
+        },
         locale: Default::default(),
         font_language_override: None,
         tab_size: parley::TabSize::default(),

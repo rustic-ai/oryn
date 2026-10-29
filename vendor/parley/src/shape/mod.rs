@@ -12,7 +12,7 @@ use harfrust::ShapeOptions;
 
 use super::layout::Layout;
 use super::resolve::{ResolveContext, Resolved, ResolvedStyle};
-use super::style::{Brush, FontFeature, FontVariation};
+use super::style::{Brush, FontFeature, FontVariation, FontVariantCaps};
 use crate::analysis::cluster::{Char, CharCluster, Status};
 use crate::analysis::{AnalysisDataSources, CharInfo};
 use crate::convert::script_to_harfrust;
@@ -59,6 +59,7 @@ struct Item {
     font_language_override: Option<[u8;4]>,
     variations: Resolved<FontVariation>,
     features: Resolved<FontFeature>,
+    caps: FontVariantCaps,
     word_spacing: f32,
     letter_spacing: f32,
 }
@@ -108,6 +109,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
         font_language_override: style.font_language_override,
         variations: style.font_variations,
         features: style.font_features,
+        caps: style.font_variant_caps,
         word_spacing: style.word_spacing,
         letter_spacing: style.letter_spacing,
     };
@@ -136,6 +138,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
                 || style.font_language_override != item.font_language_override
                 || style.font_variations != item.variations
                 || style.font_features != item.features
+                || style.font_variant_caps != item.caps
                 || !nearly_eq(style.letter_spacing, item.letter_spacing)
                 || !nearly_eq(style.word_spacing, item.word_spacing)
             {
@@ -190,6 +193,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
             item.font_language_override = style.font_language_override;
             item.variations = style.font_variations;
             item.features = style.font_features;
+            item.caps = style.font_variant_caps;
             item.word_spacing = style.word_spacing;
             item.letter_spacing = style.letter_spacing;
             text_range.start = text_range.end;
@@ -420,18 +424,42 @@ fn shape_item<'a, B: Brush>(
         } else {
             item.locale.as_ref().and_then(|lang|lang.to_string().parse::<harfrust::Language>().ok())
         };
-        scx.features.clear();
-        for feature in descriptor.map(|descriptor|descriptor.features.as_slice()).unwrap_or(&[]).iter().chain(rcx.features(item.features).unwrap_or(&[])) {
-            scx.features.push(harfrust::Feature::new(
-                harfrust::Tag::new(&feature.tag.to_bytes()),
-                feature.value as u32,
-                ..,
-            ));
-        }
         let harf_shaper = shaper_data
             .shaper(&font_ref)
             .instance(Some(instance))
             .build();
+        // Probe the selected face's actual script/language system. Explicit
+        // OpenType settings alone must never trigger high-level CSS fallback.
+        let all_petite = item.caps == FontVariantCaps::AllPetiteCaps;
+        let fallback = if all_petite || item.caps == FontVariantCaps::PetiteCaps {
+            let probe = [
+                harfrust::Feature::new(harfrust::Tag::new(b"pcap"), 1, ..),
+                harfrust::Feature::new(harfrust::Tag::new(b"c2pc"), 1, ..),
+            ];
+            let plan = scx.shape_plan_cache.entry(
+                cache::ShapePlanKey::new(font.font.blob.id(), font.font.index,
+                    &font.font.synthesis, direction, hb_script, language.clone(), &probe, variations),
+                || harfrust::ShapePlan::new(&harf_shaper, direction, Some(hb_script), language.as_ref(), &probe),
+            );
+            !plan.has_gsub_feature(harfrust::Tag::new(b"pcap"))
+                || (all_petite && !plan.has_gsub_feature(harfrust::Tag::new(b"c2pc")))
+        } else { false };
+        scx.features.clear();
+        for feature in descriptor.map(|descriptor|descriptor.features.as_slice()).unwrap_or(&[]) {
+            scx.features.push(harfrust::Feature::new(
+                harfrust::Tag::new(&feature.tag.to_bytes()), feature.value as u32, ..));
+        }
+        if fallback {
+            scx.features.push(harfrust::Feature::new(harfrust::Tag::new(b"smcp"), 1, ..));
+            if all_petite {
+                scx.features.push(harfrust::Feature::new(harfrust::Tag::new(b"c2sc"), 1, ..));
+            }
+        }
+        // Explicit element settings remain last and override caps defaults.
+        for feature in rcx.features(item.features).unwrap_or(&[]) {
+            scx.features.push(harfrust::Feature::new(
+                harfrust::Tag::new(&feature.tag.to_bytes()), feature.value as u32, ..));
+        }
         let shaper_plan = scx.shape_plan_cache.entry(
             cache::ShapePlanKey::new(
                 font.font.blob.id(),

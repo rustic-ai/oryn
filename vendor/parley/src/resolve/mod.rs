@@ -12,7 +12,7 @@ use alloc::{vec, vec::Vec};
 
 use super::style::{
     Brush, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontStyle, FontVariation,
-    FontVariations, FontWeight, FontWidth, StyleProperty,
+    FontVariations, FontWeight, FontWidth, StyleProperty, FontVariantCaps,
 };
 use crate::font::FontContext;
 use crate::style::TextStyle;
@@ -148,6 +148,7 @@ impl ResolveContext {
             StyleProperty::FontWeight(value) => FontWeight(*value),
             StyleProperty::FontVariations(value) => FontVariations(self.resolve_variations(value)),
             StyleProperty::FontFeatures(value) => FontFeatures(self.resolve_features(value)),
+            StyleProperty::FontVariantCaps(value) => FontVariantCaps(*value),
             StyleProperty::Locale(value) => Locale(*value),
             StyleProperty::FontLanguageOverride(value) => FontLanguageOverride(*value),
             StyleProperty::Brush(value) => Brush(value.clone()),
@@ -186,6 +187,7 @@ impl ResolveContext {
             font_weight: raw_style.font_weight,
             font_variations: self.resolve_variations(&raw_style.font_variations),
             font_features: self.resolve_features(&raw_style.font_features),
+            font_variant_caps: raw_style.font_variant_caps,
             locale: raw_style.locale,
             font_language_override: raw_style.font_language_override,
             brush: raw_style.brush.clone(),
@@ -361,6 +363,7 @@ pub(crate) enum ResolvedProperty<B: Brush> {
     FontVariations(Resolved<FontVariation>),
     /// Font feature settings.
     FontFeatures(Resolved<FontFeature>),
+    FontVariantCaps(FontVariantCaps),
     /// Locale.
     Locale(Option<Language>),
     FontLanguageOverride(Option<[u8;4]>),
@@ -415,6 +418,7 @@ pub(crate) struct ResolvedStyle<B: Brush> {
     pub(crate) font_variations: Resolved<FontVariation>,
     /// Font feature settings.
     pub(crate) font_features: Resolved<FontFeature>,
+    pub(crate) font_variant_caps: FontVariantCaps,
     /// Locale.
     pub(crate) locale: Option<Language>,
     pub(crate) font_language_override: Option<[u8;4]>,
@@ -452,6 +456,7 @@ impl<B: Brush> ResolvedStyle<B> {
             FontWeight(value) => self.font_weight = value,
             FontVariations(value) => self.font_variations = value,
             FontFeatures(value) => self.font_features = value,
+            FontVariantCaps(value) => self.font_variant_caps = value,
             Locale(value) => self.locale = value,
             FontLanguageOverride(value) => self.font_language_override = value,
             Brush(value) => self.brush = value,
@@ -484,6 +489,7 @@ impl<B: Brush> ResolvedStyle<B> {
             FontWeight(value) => self.font_weight == *value,
             FontVariations(value) => self.font_variations == *value,
             FontFeatures(value) => self.font_features == *value,
+            FontVariantCaps(value) => self.font_variant_caps == *value,
             Locale(value) => self.locale == *value,
             FontLanguageOverride(value) => self.font_language_override == *value,
             Brush(value) => self.brush == *value,

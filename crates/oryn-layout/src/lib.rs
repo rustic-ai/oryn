@@ -1661,6 +1661,15 @@ fn text_style_properties(
     properties.push(StyleProperty::FontFeatures(parley::FontFeatures::List(
         Cow::Owned(text_features::resolve(style)),
     )));
+    properties.push(StyleProperty::FontVariantCaps(match style_value(style, "font-variant-caps", "normal") {
+        "small-caps" => parley::FontVariantCaps::SmallCaps,
+        "all-small-caps" => parley::FontVariantCaps::AllSmallCaps,
+        "petite-caps" => parley::FontVariantCaps::PetiteCaps,
+        "all-petite-caps" => parley::FontVariantCaps::AllPetiteCaps,
+        "unicase" => parley::FontVariantCaps::Unicase,
+        "titling-caps" => parley::FontVariantCaps::TitlingCaps,
+        _ => parley::FontVariantCaps::Normal,
+    }));
     properties.push(StyleProperty::FontVariations(parley::FontVariations::List(
         Cow::Owned(text_features::variations(style, font_size)),
     )));

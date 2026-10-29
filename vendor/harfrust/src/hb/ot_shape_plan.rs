@@ -113,6 +113,12 @@ impl hb_ot_shape_plan_t {
     pub fn language(&self) -> Option<&Language> {
         self.language.as_ref()
     }
+
+    /// Whether a requested substitution feature was found in this plan's
+    /// selected font/script/language system (not merely its global FeatureList).
+    pub fn has_gsub_feature(&self, tag: super::hb_tag_t) -> bool {
+        self.ot_map.get_feature_index(super::ot_layout::TableIndex::GSUB, tag).is_some()
+    }
 }
 
 /// A key used for selecting a shape plan.
