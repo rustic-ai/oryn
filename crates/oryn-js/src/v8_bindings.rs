@@ -2173,7 +2173,19 @@ pub struct BindingCanvasFontRequest {
 }
 #[derive(Debug)]
 pub enum BindingCanvasFontError { Syntax, Native(String) }
+/// Captured native fonts for one validated Canvas text request. The caller
+/// retains its computed drawing-state font separately while using this input.
+pub struct BindingCanvasTextInput {
+    pub request: BindingCanvasFontRequest,
+    pub viewport: oryn_common::v4::ViewportState,
+    pub fonts: oryn_layout::canvas_text::font_inputs::Prepared,
+}
 pub trait BindingLayoutProvider {
+    fn prepare_canvas_text_input(
+        &self, _dom: &Rc<RefCell<DomRuntime>>, _request: BindingCanvasFontRequest,
+        _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+        _scroll: (f64, f64), _element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Option<Result<BindingCanvasTextInput, String>> { None }
     #[expect(clippy::too_many_arguments, reason = "Keep font input and document snapshot ownership separate")]
     fn resolve_canvas_font(
         &self, _dom: &Rc<RefCell<DomRuntime>>, _request: BindingCanvasFontRequest,

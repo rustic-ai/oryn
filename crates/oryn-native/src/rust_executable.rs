@@ -1119,6 +1119,44 @@ mod selected_paint_image_load;
 pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn prepare_canvas_text_input(
+        &self, dom: &Rc<RefCell<DomRuntime>>, request: oryn_js::v8_bindings::BindingCanvasFontRequest,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>, scroll: (f64, f64),
+        element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingCanvasTextInput, String>> {
+        Some((|| {
+            let validate = || -> Result<(), String> {
+                if !Rc::ptr_eq(dom, &self.dom) || request.document != self.document { return Err("foreign Canvas text document".into()); }
+                let dom = dom.try_borrow().map_err(|_| "Canvas text DOM borrow conflict")?;
+                let identity = self.native_document_identity.get().ok_or("unbound Canvas text document")?;
+                if identity.document != request.document || identity.document_generation != request.document_generation
+                    || identity.stream_epoch != request.stream_epoch || self.layout_revision() != request.style_generation {
+                    return Err("stale Canvas text document/style".into());
+                }
+                if dom.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document) {
+                    return Err("foreign Canvas text target".into());
+                }
+                if !matches!(&dom.arena().get(request.canvas).map_err(|e| e.to_string())?.kind,
+                    NodeKind::Element { name, .. } if name.local.as_ref() == "canvas" && name.ns.as_ref() == "http://www.w3.org/1999/xhtml") {
+                    return Err("Canvas text target is not an HTML canvas".into());
+                }
+                Ok(())
+            };
+            validate()?;
+            let witness = (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get());
+            let admission = self.retained_revision_admission()?;
+            admission.checkpoint()?;
+            let captured = self.capture_layout_input(Some(request.document), custom_states, scroll, element_scrolls)?;
+            validate()?;
+            let fonts = oryn_layout::canvas_text::font_inputs::prepare(&captured.input.web_fonts, &oryn_layout::LayoutLimits::default(), admission.as_ref())?;
+            admission.checkpoint()?;
+            validate()?;
+            if witness != (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get()) {
+                return Err("Canvas text input changed during capture".into());
+            }
+            Ok(oryn_js::v8_bindings::BindingCanvasTextInput { request, viewport: captured.input.viewport, fonts })
+        })())
+    }
     fn resolve_canvas_font(
         &self, dom: &Rc<RefCell<DomRuntime>>,
         request: oryn_js::v8_bindings::BindingCanvasFontRequest, font: &str,
@@ -1129,12 +1167,13 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         Some((|| {
             let validate = || -> Result<_, String> {
                 if !Rc::ptr_eq(dom, &self.dom) || request.document != self.document { return Err("foreign canvas font document owner".into()); }
+                let borrowed = dom.try_borrow().map_err(|_| "canvas font DOM borrow conflict")?;
                 let identity = self.native_document_identity.get().ok_or("unbound canvas font owner")?;
                 if identity.document != request.document || identity.document_generation != request.document_generation
                     || identity.stream_epoch != request.stream_epoch || self.layout_revision() != request.style_generation {
                     return Err("stale canvas font document/style owner".into());
                 }
-                if dom.try_borrow().map_err(|_| "canvas font DOM borrow conflict")?.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document) {
+                if borrowed.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document) {
                     return Err("foreign canvas font target".into());
                 }
                 Ok(identity)
@@ -20138,12 +20177,29 @@ mod tests {
             let query = |request, font| provider.resolve_canvas_font(&dom, request, font, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap();
             let result = query(request, "1.5em sans-serif").unwrap();
             assert_eq!(result.style.get_font().font_size.computed_size().px(), 30.);
+            let text_query = |request| provider.prepare_canvas_text_input(&dom, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap();
+            let text = text_query(request).unwrap();
+            assert_eq!(text.request, request);
+            assert!(text.viewport.width > 0. && text.viewport.height > 0.);
+            let style = result.shaping.declarations.iter().cloned().collect();
+            let shaped = oryn_layout::canvas_text::shape("Ag", &style, text.viewport, &text.fonts.fonts).unwrap();
+            assert_eq!(shaped.font_size, 30.);
+            assert!(shaped.width > 0.);
+            assert!(text_query(BindingCanvasFontRequest { source_element: false, ..request }).is_ok());
+            let foreign = Rc::new(RefCell::new(oryn_dom::html::parse("<canvas></canvas>").into_runtime().unwrap()));
+            assert!(provider.prepare_canvas_text_input(&foreign, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().is_err());
+            {
+                let _exclusive = dom.borrow_mut();
+                assert!(text_query(request).is_err(), "conflicting DOM borrow must fail without panic");
+                assert!(matches!(query(request, "20px sans-serif"), Err(Error::Native(_))));
+            }
             assert!(matches!(query(request, "not a font"), Err(Error::Syntax)));
             for stale in [BindingCanvasFontRequest { document_generation: request.document_generation + 1, ..request },
                 BindingCanvasFontRequest { stream_epoch: request.stream_epoch + 1, ..request },
                 BindingCanvasFontRequest { style_generation: request.style_generation.map(|revision| revision + 1), ..request },
                 BindingCanvasFontRequest { canvas: other, ..request }] {
                 assert!(matches!(query(stale, "20px sans-serif"), Err(Error::Native(_))));
+                assert!(text_query(stale).is_err());
             }
             Ok(())
         }).unwrap();
