@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod baselines;
 pub mod font_inputs;
+pub(crate) mod font_bytes;
 pub mod font_selection;
 mod ink;
 pub mod metrics;
@@ -37,6 +38,7 @@ pub struct CanvasTextShape {
     neutral_font_run: Option<PaintGlyphRun>,
     pub first_available_font: font_selection::MetricFont,
     cancellation: Cancellation,
+    _font_byte_owner: Option<font_bytes::Owner>,
 }
 
 impl CanvasTextShape {
@@ -229,6 +231,29 @@ pub fn shape_controlled(
     fonts: &[(String, Vec<u8>, String, bool, bool)],
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 ) -> Result<CanvasTextShape, LayoutError> {
+    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, None)
+}
+
+/// Admit actual copies of bundled/document font bytes before Fontique and
+/// paint-resource publication. This does not account opaque Parley scratch.
+pub fn shape_font_bytes_admitted(
+    text: &str,
+    font_style: &BTreeMap<String, String>,
+    viewport: ViewportState,
+    fonts: &[(String, Vec<u8>, String, bool, bool)],
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    admission: Arc<dyn crate::cssom::native_import_graph::ImportAdmission + Send + Sync>,
+) -> Result<CanvasTextShape, LayoutError> {
+    shape_with_font_byte_admission(text, font_style, viewport, fonts, cancelled, Some(font_bytes::Owner::new(admission)))
+}
+fn shape_with_font_byte_admission(
+    text: &str,
+    font_style: &BTreeMap<String, String>,
+    viewport: ViewportState,
+    fonts: &[(String, Vec<u8>, String, bool, bool)],
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    font_byte_owner: Option<font_bytes::Owner>,
+) -> Result<CanvasTextShape, LayoutError> {
     super::layout_checkpoint(&cancelled)?;
     // Canvas replaces each ASCII whitespace character independently. It does
     // not collapse runs, trim edges or combine CRLF into one space.
@@ -258,7 +283,7 @@ pub fn shape_controlled(
         ("text-align".into(), "left".into()),
     ]);
     let font_size = length(style_value(&style, "font-size", "10px"), 16., 16., viewport);
-    let mut engine = TextEngine::new(fonts);
+    let mut engine = TextEngine::new_with_font_byte_admission(fonts, font_byte_owner)?;
     engine.cancelled = cancelled.clone();
     super::layout_checkpoint(&cancelled)?;
     let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
@@ -302,12 +327,44 @@ pub fn shape_controlled(
         neutral_font_run: neutral.glyph_runs.into_iter().flatten().next(),
         first_available_font,
         cancellation: Cancellation(cancelled),
+        _font_byte_owner: engine.canvas_font_bytes,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn canvas_concrete_font_copies_retain_charges_and_reject_each_denial() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Charge { live: Arc<AtomicUsize>, bytes: usize }
+        impl Drop for Charge { fn drop(&mut self) { self.live.fetch_sub(self.bytes, Ordering::SeqCst); } }
+        struct Admission { live: Arc<AtomicUsize>, calls: AtomicUsize, deny: usize }
+        impl crate::cssom::native_import_graph::ImportAdmission for Admission {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == self.deny { return Err("copy admission denied".into()); }
+                self.live.fetch_add(bytes, Ordering::SeqCst);
+                Ok(Arc::new(Charge { live: self.live.clone(), bytes }))
+            }
+        }
+        let make = |deny| Arc::new(Admission { live: Arc::new(AtomicUsize::new(0)), calls: AtomicUsize::new(0), deny });
+        let fonts = vec![("Captured".into(), crate::DEFAULT_FONT_BYTES.to_vec(), "font-weight:400".into(), false, false)];
+        let style = BTreeMap::from([("font-family".into(), "Captured".into()), ("font-size".into(), "20px".into())]);
+        let owner = make(usize::MAX);
+        let shape = shape_font_bytes_admitted("Ag", &style, ViewportState::default(), &fonts, None, owner.clone()).unwrap();
+        let calls = owner.calls.load(Ordering::SeqCst);
+        assert!(calls >= 6, "bundled, document and exported face copies each need metadata and byte admission");
+        assert!(owner.live.load(Ordering::SeqCst) >= crate::DEFAULT_FONT_BYTES.len() * 3);
+        assert!(shape.width > 0.);
+        drop(shape);
+        assert_eq!(owner.live.load(Ordering::SeqCst), 0);
+        for denial in 0..calls {
+            let owner = make(denial);
+            assert!(shape_font_bytes_admitted("Ag", &style, ViewportState::default(), &fonts, None, owner.clone()).is_err(), "denial {denial}");
+            assert_eq!(owner.live.load(Ordering::SeqCst), 0, "denial {denial} leaked a charge");
+        }
+    }
     #[test]
     fn native_canvas_zero_size_font_has_zero_metrics_and_no_ink() {
         let style = BTreeMap::from([

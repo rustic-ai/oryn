@@ -1284,6 +1284,8 @@ struct TextEngine {
     table_block_sizes: BTreeMap<u64, f64>,
     table_baseline_offsets: BTreeMap<u64, f64>,
     active_out_of_flow: Option<u64>,
+    // Last field: concrete copied font bytes dispose before their charges.
+    canvas_font_bytes: Option<canvas_text::font_bytes::Owner>,
 }
 
 #[derive(Debug, Clone)]
@@ -1686,12 +1688,25 @@ impl TextEngine {
         }
     }
     fn new(web_fonts: &[(String, Vec<u8>, String, bool, bool)]) -> Self {
+        Self::new_with_font_byte_admission(web_fonts, None)
+            .expect("uncontrolled font copies cannot reject admission")
+    }
+    fn new_with_font_byte_admission(
+        web_fonts: &[(String, Vec<u8>, String, bool, bool)],
+        mut canvas_font_bytes: Option<canvas_text::font_bytes::Owner>,
+    ) -> Result<Self, LayoutError> {
+        let mut copy = |bytes: &[u8]| -> Result<Vec<u8>, LayoutError> {
+            match canvas_font_bytes.as_mut() {
+                Some(owner) => owner.copy(bytes).map_err(LayoutError::StyleTraversal),
+                None => Ok(bytes.to_vec()),
+            }
+        };
         let mut collection = fontique::Collection::new(fontique::CollectionOptions {
             shared: false,
             system_fonts: false,
         });
         collection.register_fonts(
-            fontique::Blob::new(Arc::new(DEFAULT_FONT_BYTES.to_vec())),
+            fontique::Blob::new(Arc::new(copy(DEFAULT_FONT_BYTES)?)),
             Some(fontique::FontInfoOverride {
                 family_name: Some(DEFAULT_FONT_FAMILY),
                 ..fontique::FontInfoOverride::default()
@@ -1709,7 +1724,7 @@ impl TextEngine {
                 continue;
             }
             let registered = collection.register_fonts(
-                fontique::Blob::new(Arc::new(bytes.clone())),
+                fontique::Blob::new(Arc::new(copy(bytes)?)),
                 Some(face.override_info()),
             );
             for (family, _) in registered {
@@ -1717,7 +1732,7 @@ impl TextEngine {
             }
             web_faces.push(face);
         }
-        Self {
+        Ok(Self {
             web_faces,
             cancelled: None,
             fonts: FontContext {
@@ -1777,7 +1792,8 @@ impl TextEngine {
             table_block_sizes: BTreeMap::new(),
             table_baseline_offsets: BTreeMap::new(),
             active_out_of_flow: None,
-        }
+            canvas_font_bytes,
+        })
     }
 
     #[cfg(test)]
@@ -2981,12 +2997,21 @@ impl TextEngine {
                                 format!("{:x}:{}", Sha256::digest(font.data.data()), font.index)
                             })
                             .clone();
-                        self.paint_fonts.entry(key.clone()).or_insert_with(|| {
-                            oryn_common::v4::PaintFontResource {
-                                bytes: font.data.data().to_vec(),
-                                collection_index: font.index,
-                            }
-                        });
+                        if !self.paint_fonts.contains_key(&key) {
+                            let bytes = match self.canvas_font_bytes.as_mut() {
+                                Some(owner) => match owner.copy(font.data.data()) {
+                                    Ok(bytes) => bytes,
+                                    Err(error) => {
+                                        self.font_demand_error = Some(LayoutError::StyleTraversal(error));
+                                        return None;
+                                    }
+                                },
+                                None => font.data.data().to_vec(),
+                            };
+                            self.paint_fonts.insert(key.clone(), oryn_common::v4::PaintFontResource {
+                                bytes, collection_index: font.index,
+                            });
+                        }
                         let owner = glyph_run.style().brush.owner;
                         let begin = glyph_run.offset();
                         let end = begin + glyph_run.advance();

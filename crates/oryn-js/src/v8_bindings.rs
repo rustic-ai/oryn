@@ -2183,6 +2183,7 @@ pub struct BindingCanvasTextInput {
     pub witness: (oryn_dom::MutationCursor, u64, u64, u64),
     /// Pure owning-isolate retirement check retained by native shaping.
     pub cancelled: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+    pub font_byte_admission: std::sync::Arc<dyn oryn_layout::cssom::native_import_graph::ImportAdmission + Send + Sync>,
 }
 pub trait BindingLayoutProvider {
     fn validate_canvas_text_input(

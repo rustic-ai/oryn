@@ -1177,9 +1177,12 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             let allocation = self.native_retained_allocation.try_borrow().map_err(|_| "Canvas text cancellation owner borrow conflict")?
                 .as_ref().cloned().ok_or("Canvas text cancellation owner unavailable")?;
             let cancelled = allocation.capture_cancellation()?;
+            let font_byte_admission = self.shared_retained_admission.try_borrow()
+                .map_err(|_| "Canvas font byte admission borrow conflict")?.as_ref().cloned()
+                .ok_or("Canvas font byte admission unavailable")?;
             if cancelled() { return Err("Canvas text cancellation owner retired".into()); }
             Ok(oryn_js::v8_bindings::BindingCanvasTextInput { request, viewport: captured.input.viewport, fonts,
-                native_owner: self.retained_stylesheets.clone(), witness, cancelled })
+                native_owner: self.retained_stylesheets.clone(), witness, cancelled, font_byte_admission })
         })())
     }
     fn resolve_canvas_font(
@@ -20207,7 +20210,7 @@ mod tests {
             assert_eq!(text.request, request);
             assert!(text.viewport.width > 0. && text.viewport.height > 0.);
             let style = result.shaping.declarations.iter().cloned().collect();
-            let shaped = oryn_layout::canvas_text::shape_controlled("Ag", &style, text.viewport, &text.fonts.fonts, Some(text.cancelled.clone())).unwrap();
+            let shaped = oryn_layout::canvas_text::shape_font_bytes_admitted("Ag", &style, text.viewport, &text.fonts.fonts, Some(text.cancelled.clone()), text.font_byte_admission.clone()).unwrap();
             assert_eq!(shaped.font_size, 30.);
             assert!(shaped.width > 0.);
             provider.validate_canvas_text_input(&dom, &text).unwrap();
@@ -20272,7 +20275,7 @@ mod tests {
             let font = provider.resolve_canvas_font(&dom, request, "20px sans-serif", &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().unwrap();
             let input = provider.prepare_canvas_text_input(&dom, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().unwrap();
             let style = font.shaping.declarations.iter().cloned().collect();
-            let shape = oryn_layout::canvas_text::shape_controlled("Ag", &style, input.viewport, &input.fonts.fonts, Some(input.cancelled.clone())).unwrap();
+            let shape = oryn_layout::canvas_text::shape_font_bytes_admitted("Ag", &style, input.viewport, &input.fonts.fonts, Some(input.cancelled.clone()), input.font_byte_admission.clone()).unwrap();
             Ok((shape, input))
         }).unwrap();
         assert!(!(input.cancelled)());
