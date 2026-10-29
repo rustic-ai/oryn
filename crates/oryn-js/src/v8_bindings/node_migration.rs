@@ -203,6 +203,7 @@ pub(super) fn move_node_maps(
             };
         }
         move_entry!(canvas_images);
+        move_entry!(canvas_context_settings);
         move_entry!(canvas_draw_states);
         move_entry!(canvas_saved_states);
         move_entry!(canvas_paths);

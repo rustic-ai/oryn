@@ -158,7 +158,7 @@ fn source_with_orientation(
             .get(&node)
             .cloned()
             .map(Ok)
-            .unwrap_or_else(|| empty_canvas_bitmap(width, height))?;
+            .unwrap_or_else(|| canvas_context_settings::empty(&owner, node, width, height))?;
         bitmap.origin_clean &= !owner.tainted_canvases.borrow().contains(&node);
         Ok(Some(bitmap))
     } else {

@@ -4198,6 +4198,14 @@ pub(super) fn dispatch_htmlcanvaselement_getcontext<'s>(
         {
             return Ok(Some(context));
         }
+        let settings = canvas_context_settings::parse(scope, args.get(1))?;
+        // Author getters can adopt the canvas or create its context reentrantly.
+        // Use the current native owner and honor the context that won creation.
+        let (state, node) = node_identity::argument(scope, owner.into())?
+            .ok_or(V8BindingError::Allocation("canvas settings owner"))?;
+        if let Some(context) = owner.get_private(scope, cache_key).filter(|value| value.is_object()) {
+            return Ok(Some(context));
+        }
         let template = state
             .instance_templates
             .borrow()
@@ -4218,6 +4226,7 @@ pub(super) fn dispatch_htmlcanvaselement_getcontext<'s>(
         if owner.set_private(scope, cache_key, context.into()) != Some(true) {
             return Err(V8BindingError::Allocation("canvas context cache"));
         }
+        state.canvas_context_settings.borrow_mut().insert(node, settings);
         Ok(Some(context.into()))
     }
 }

@@ -491,6 +491,10 @@ pub(super) fn create_state(
             || Rc::new(RefCell::new(BTreeMap::new())),
             |owner| owner.canvas_draw_states.clone(),
         ),
+        canvas_context_settings: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(BTreeMap::new())),
+            |owner| owner.canvas_context_settings.clone(),
+        ),
         canvas_saved_states: range_owner.as_ref().map_or_else(
             || Rc::new(RefCell::new(BTreeMap::new())),
             |owner| owner.canvas_saved_states.clone(),

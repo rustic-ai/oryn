@@ -1637,8 +1637,19 @@ interface TextMetrics {
   readonly attribute double ideographicBaseline;
 };
 
+enum PredefinedColorSpace { "srgb", "srgb-linear", "display-p3", "display-p3-linear" };
+enum CanvasColorType { "unorm8", "float16" };
+dictionary CanvasRenderingContext2DSettings {
+  boolean alpha = true;
+  boolean desynchronized = false;
+  PredefinedColorSpace colorSpace = "srgb";
+  CanvasColorType colorType = "unorm8";
+  boolean willReadFrequently = false;
+};
+
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  CanvasRenderingContext2DSettings getContextAttributes();
   undefined fillText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   undefined strokeText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   attribute DOMString lang;
@@ -1727,6 +1738,7 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  CanvasRenderingContext2DSettings getContextAttributes();
   undefined fillText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   undefined strokeText(DOMString text, unrestricted double x, unrestricted double y, optional unrestricted double maxWidth);
   attribute DOMString lang;

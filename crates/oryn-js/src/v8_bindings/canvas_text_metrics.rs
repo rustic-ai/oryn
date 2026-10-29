@@ -139,9 +139,10 @@ fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
         if state.execution_tasks_stopped() || canvas_receiver_node(scope, &state, &args)? != canvas { return Err(V8BindingError::Message("InvalidStateError".into())); }
         let (width, height) = canvas_dimensions(&state, canvas)?;
         let mut images = state.canvas_images.borrow_mut();
-        if let std::collections::btree_map::Entry::Vacant(entry) = images.entry(canvas) { entry.insert(empty_canvas_bitmap(width, height)?); }
+        if let std::collections::btree_map::Entry::Vacant(entry) = images.entry(canvas) { entry.insert(canvas_context_settings::empty(&state, canvas, width, height)?); }
         let target = images.get_mut(&canvas).ok_or(V8BindingError::Allocation("Canvas text bitmap"))?;
         canvas_gradients::paint_path(target, &path, &draw_state, stroking, false);
+        canvas_context_settings::finish(&state, canvas, target);
         Ok(None)
     })();
     match result { Ok(Some(object)) => rv.set(object.into()), Ok(None) => {}, Err(error) => throw_binding_error(scope, &error) }

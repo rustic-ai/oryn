@@ -199,6 +199,7 @@ use crate::{
 mod document_parser_gate;
 pub use document_parser_gate::{DocumentParserGate, with_parser_construction};
 mod canvas_composite;
+mod canvas_context_settings;
 mod canvas_gradients;
 mod canvas_patterns;
 mod canvas_path;
@@ -3082,6 +3083,7 @@ pub struct V8BindingState {
     svg_image_origin_clean: Rc<RefCell<BTreeMap<NodeId, bool>>>,
     decoded_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
     canvas_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
+    canvas_context_settings: Rc<RefCell<BTreeMap<NodeId, canvas_context_settings::Requested>>>,
     canvas_draw_states: Rc<RefCell<BTreeMap<NodeId, CanvasDrawState>>>,
     canvas_saved_states: Rc<RefCell<BTreeMap<NodeId, Vec<CanvasDrawState>>>>,
     canvas_paths: Rc<RefCell<BTreeMap<NodeId, canvas_path::CanvasPath>>>,
@@ -6289,6 +6291,9 @@ impl V8BindingState {
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
         self.canvas_draw_states
+            .borrow_mut()
+            .retain(|node, _| dom.arena().get(*node).is_ok());
+        self.canvas_context_settings
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
         self.canvas_saved_states
@@ -40964,6 +40969,9 @@ fn canvas_png(state: &V8BindingState, canvas: NodeId) -> Result<Option<Vec<u8>>,
         return Ok(None);
     }
     pixels.resize(size, 0);
+    if canvas_context_settings::opaque(state, canvas) {
+        for pixel in pixels.chunks_exact_mut(4) { pixel[3] = 255; }
+    }
     if let Some(bitmap) = state.canvas_images.borrow().get(&canvas) {
         let columns = width.min(bitmap.width) as usize * 4;
         for row in 0..height.min(bitmap.height) as usize {
@@ -41067,6 +41075,7 @@ fn install_canvas_context_members(
     canvas_patterns::install_factory(scope, context)?;
     canvas_text_state::install(scope, context)?;
     canvas_text_metrics::install(scope, context)?;
+    canvas_context_settings::install(scope, context)?;
     for name in [
         "strokeStyle",
         "lineWidth",
@@ -44721,12 +44730,13 @@ fn canvas_path_operation(
             let (width, height) = canvas_dimensions(&state, canvas)?;
             let mut images = state.canvas_images.borrow_mut();
             if let std::collections::btree_map::Entry::Vacant(e) = images.entry(canvas) {
-                e.insert(empty_canvas_bitmap(width, height)?);
+                e.insert(canvas_context_settings::empty(&state, canvas, width, height)?);
             }
             let target = images
                 .get_mut(&canvas)
                 .ok_or(V8BindingError::Allocation("canvas bitmap"))?;
             canvas_gradients::paint_path(target, &path, &draw, stroking, evenodd);
+            canvas_context_settings::finish(&state, canvas, target);
             return Ok(());
         }
         let mut paths = state.canvas_paths.borrow_mut();
@@ -44829,7 +44839,7 @@ fn canvas_fill_rect(
         let (width, height) = canvas_dimensions(&state, canvas)?;
         let mut bitmaps = state.canvas_images.borrow_mut();
         if let std::collections::btree_map::Entry::Vacant(e) = bitmaps.entry(canvas) {
-            e.insert(empty_canvas_bitmap(width, height)?);
+            e.insert(canvas_context_settings::empty(&state, canvas, width, height)?);
         }
         let bitmap = bitmaps.get_mut(&canvas).expect("canvas bitmap inserted");
         let draw = state
@@ -44844,6 +44854,7 @@ fn canvas_fill_rect(
             let mut path = canvas_path::CanvasPath::default();
             path.rectangle([point(rect[0],rect[1]), point(rect[0]+rect[2],rect[1]), point(rect[0]+rect[2],rect[1]+rect[3]), point(rect[0],rect[1]+rect[3])]);
             canvas_gradients::paint_path(bitmap, &path.closed(), &draw, false, false);
+            canvas_context_settings::finish(&state, canvas, bitmap);
             return Ok(());
         }
         raster_canvas_image_transformed(
@@ -44858,6 +44869,7 @@ fn canvas_fill_rect(
                 clips: &draw.clips,
             },
         );
+        canvas_context_settings::finish(&state, canvas, bitmap);
         Ok(())
     })();
     if let Err(error) = result {
@@ -44895,6 +44907,7 @@ fn canvas_clear_rect(
                 .cloned()
                 .unwrap_or_default();
             raster_canvas_clear_transformed(bitmap, rect, draw.transform, &draw.clips);
+            canvas_context_settings::finish(&state, canvas, bitmap);
         }
         Ok(())
     })();
@@ -45180,7 +45193,7 @@ fn canvas_draw_image(
             .cloned()
             .filter(|bitmap| bitmap.width == width && bitmap.height == height)
             .map(Ok)
-            .unwrap_or_else(|| empty_canvas_bitmap(width, height))?;
+            .unwrap_or_else(|| canvas_context_settings::empty(&state, canvas, width, height))?;
         let draw_state = state
             .canvas_draw_states
             .borrow()
@@ -45200,6 +45213,7 @@ fn canvas_draw_image(
             },
         );
         target.origin_clean = !state.tainted_canvases.borrow().contains(&canvas);
+        canvas_context_settings::finish(&state, canvas, &mut target);
         state.canvas_images.borrow_mut().insert(canvas, target);
         Ok(())
     })();
@@ -45553,7 +45567,7 @@ fn canvas_put_image_data(
             .get(&canvas)
             .is_some_and(|b| b.width == canvas_width && b.height == canvas_height)
         {
-            images.insert(canvas, empty_canvas_bitmap(canvas_width, canvas_height)?);
+            images.insert(canvas, canvas_context_settings::empty(&state, canvas, canvas_width, canvas_height)?);
         }
         let target = images
             .get_mut(&canvas)
@@ -45565,6 +45579,7 @@ fn canvas_put_image_data(
             target.rgba[dest..dest + count].copy_from_slice(&pixels[source..source + count]);
         }
         target.origin_clean = !state.tainted_canvases.borrow().contains(&canvas);
+        canvas_context_settings::finish(&state, canvas, target);
         Ok(())
     })();
     if let Err(error) = result {
@@ -45634,6 +45649,18 @@ fn canvas_get_image_data(
         rgba.try_reserve_exact(expected)
             .map_err(|_| V8BindingError::Allocation("ImageData pixels"))?;
         rgba.resize(expected, 0);
+        if canvas_context_settings::opaque(&state, canvas) {
+            let (canvas_width, canvas_height) = canvas_dimensions(&state, canvas)?;
+            for row in 0..height {
+                for column in 0..width {
+                    let sx = x + i64::from(column);
+                    let sy = y + i64::from(row);
+                    if sx >= 0 && sy >= 0 && sx < i64::from(canvas_width) && sy < i64::from(canvas_height) {
+                        rgba[(row as usize * width as usize + column as usize) * 4 + 3] = 255;
+                    }
+                }
+            }
+        }
         if let Some(image) = state.canvas_images.borrow().get(&canvas) {
             for row in 0..height {
                 for column in 0..width {
@@ -53890,6 +53917,30 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         assert!(!state.canvas_draw_states.borrow().contains_key(&canvas));
         assert!(!state.canvas_saved_states.borrow().contains_key(&canvas));
         assert!(!state.tainted_canvases.borrow().contains(&canvas));
+    }
+
+    #[test]
+    fn canvas_settings_adoption_and_reentrant_adoption_preserve_native_backing() {
+        check_global_event_prototype_script(r#"(() => {
+            const other=document.implementation.createHTMLDocument('inert');
+            const canvas=document.createElement('canvas');canvas.width=2;canvas.height=1;
+            const ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true});
+            other.adoptNode(canvas);
+            const attrs=ctx.getContextAttributes();
+            if(attrs.alpha!==false||attrs.willReadFrequently!==true)throw Error('adopted settings');
+            if(Object.keys(attrs).join('|')!=='alpha|colorSpace|colorType|desynchronized|willReadFrequently')throw Error('dictionary order');
+            ctx.clearRect(0,0,2,1);if(ctx.getImageData(0,0,1,1).data[3]!==255)throw Error('adopted opaque pixels');
+            document.adoptNode(canvas);canvas.width=2;ctx.reset();
+            if(ctx.getContextAttributes().alpha!==false||ctx.getImageData(0,0,1,1).data[3]!==255)throw Error('roundtrip settings');
+            const moved=document.createElement('canvas');moved.width=1;moved.height=1;
+            const context=moved.getContext('2d',{get alpha(){other.adoptNode(moved);return false}});
+            if(context.canvas!==moved||moved.ownerDocument!==other||context.getContextAttributes().alpha!==false)
+                throw Error('conversion adoption owner');
+            if(context.getImageData(0,0,1,1).data[3]!==255)throw Error('conversion adoption pixels');
+            let rejected=false;try{CanvasRenderingContext2D.prototype.getContextAttributes.call({})}catch(e){rejected=e instanceof TypeError}
+            if(!rejected)throw Error('settings brand');
+            return true;
+        })()"#);
     }
 
     #[test]
@@ -65209,6 +65260,134 @@ opening.onsuccess = () => {
             .unwrap()
             .run(scope)
             .unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn canvas_opaque_native_pixels_clear_reset_and_image_sources() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            for(const create of [()=>{const c=document.createElement('canvas');c.width=2;c.height=1;return c},()=>new OffscreenCanvas(2,1)]) {
+                const c=create(),ctx=c.getContext('2d',{alpha:false});
+                const settings=ctx.getContextAttributes();
+                if(settings.alpha!==false||settings.colorSpace!=='srgb'||settings.colorType!=='unorm8'||settings.desynchronized!==false)
+                    throw Error('actual native settings');
+                settings.alpha=true;
+                if(ctx.getContextAttributes()===settings||ctx.getContextAttributes().alpha!==false)throw Error('settings snapshot');
+                const pixel=()=>Array.from(ctx.getImageData(0,0,1,1).data).join();
+                if(pixel()!=='0,0,0,255')throw Error('opaque initial');
+                if(ctx.getImageData(-1,0,1,1).data[3]!==0)throw Error('outside opaque bitmap');
+                ctx.fillStyle='rgba(255,0,0,0.5)';ctx.fillRect(0,0,1,1);
+                if(pixel()!=='128,0,0,255')throw Error('opaque fill '+pixel());
+                ctx.clearRect(0,0,1,1);if(pixel()!=='0,0,0,255')throw Error('opaque clear');
+                ctx.putImageData(new ImageData(new Uint8ClampedArray([255,0,0,128]),1,1),0,0);
+                if(pixel()!=='128,0,0,255')throw Error('opaque putImageData '+pixel());
+                ctx.reset();if(pixel()!=='0,0,0,255')throw Error('opaque reset');
+                ctx.fillStyle='red';ctx.beginPath();ctx.rect(0,0,1,1);ctx.fill();
+                if(pixel()!=='255,0,0,255')throw Error('opaque path');
+                c.width=2;if(pixel()!=='0,0,0,255')throw Error('opaque resize');
+                if(ctx.getContextAttributes().alpha!==false)throw Error('resize settings lost');
+                const target=document.createElement('canvas');target.width=2;target.height=1;
+                const dest=target.getContext('2d');dest.drawImage(c,0,0);
+                if(dest.getImageData(0,0,1,1).data[3]!==255)throw Error('opaque image source');
+                if(c.localName==='canvas') {
+                    dest.fillStyle='black';dest.fillRect(0,0,2,1);
+                    if(c.toDataURL()!==target.toDataURL())throw Error('opaque PNG export');
+                } else {
+                    const bitmap=c.transferToImageBitmap();dest.clearRect(0,0,2,1);dest.drawImage(bitmap,0,0);
+                    if(dest.getImageData(0,0,1,1).data[3]!==255||pixel()!=='0,0,0,255')throw Error('opaque bitmap transfer');
+                }
+            }
+            true
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn canvas_context_initial_settings_conversion_and_reentrant_cache() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            for(const create of [()=>document.createElement('canvas'),()=>new OffscreenCanvas(2,2)]) {
+                const canvas=create(), reads=[];
+                const options=new Proxy({}, {get(t,k){reads.push(k);return undefined}});
+                const ctx=canvas.getContext('2d',options);
+                if(reads.join('|')!=='alpha|colorSpace|colorType|desynchronized|willReadFrequently')throw Error('initial reads');
+                if(canvas.getContext('2d',{get alpha(){throw Error('cached options read')}})!==ctx)throw Error('cached identity');
+                canvas.width=3;ctx.reset();
+                if(canvas.getContext('2d',{get alpha(){throw Error('resize options read')}})!==ctx)throw Error('resize identity');
+                const retry=create();let rejected=false;
+                try{retry.getContext('2d',{colorSpace:'invalid'})}catch(e){rejected=e instanceof TypeError}
+                if(!rejected||!retry.getContext('2d'))throw Error('failed conversion cached');
+                const reentrant=create();let inner;
+                const outer=reentrant.getContext('2d',{get alpha(){inner=reentrant.getContext('2d');return false}});
+                if(outer!==inner)throw Error('reentrant context replaced');
+            }
+            true
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn canvas_context_settings_native_conversion_preserves_order_and_exceptions() {
+        fn convert(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+            match canvas_context_settings::parse(scope, args.get(0)) {
+                Ok(settings) => {
+                    let value = v8::String::new(scope, &format!("{}|{}|{}|{}|{}", settings.alpha,
+                        settings.color_space, settings.color_type, settings.desynchronized,
+                        settings.will_read_frequently)).unwrap();
+                    rv.set(value.into());
+                }
+                Err(error) => throw_binding_error(scope, &error),
+            }
+        }
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let function = v8::Function::new(scope, convert).unwrap();
+        let key = v8::String::new(scope, "convertSettings").unwrap();
+        context.global(scope).set(scope, key.into(), function.into()).unwrap();
+        let source = v8::String::new(scope, r#"
+            for(const value of [undefined,null,{}])
+                if(convertSettings(value)!=='true|srgb|unorm8|false|false')throw Error('defaults');
+            for(const value of [false,0,'',Symbol(),1n]) {
+                let rejected=false;try{convertSettings(value)}catch(e){rejected=e instanceof TypeError}
+                if(!rejected)throw Error('primitive dictionary accepted');
+            }
+            const reads=[];
+            const options=new Proxy({alpha:0,colorSpace:{toString(){reads.push('convert');return 'display-p3-linear'}},
+                colorType:'float16',desynchronized:{valueOf(){throw Error('boolean coerced')}},willReadFrequently:1},
+                {get(t,k){reads.push(k);return t[k]}});
+            if(convertSettings(options)!=='false|display-p3-linear|float16|true|true')throw Error('conversion');
+            if(reads.join('|')!=='alpha|colorSpace|convert|colorType|desynchronized|willReadFrequently')throw Error('get order');
+            const sentinel={};let same=false;
+            try{convertSettings({get colorSpace(){throw sentinel},get colorType(){throw Error('suffix read')}})}
+            catch(e){same=e===sentinel}if(!same)throw Error('getter exception replaced');
+            same=false;try{convertSettings({colorSpace:{toString(){throw sentinel}},get colorType(){throw Error('suffix read')}})}
+            catch(e){same=e===sentinel}if(!same)throw Error('coercion exception replaced');
+            let rejected=false;try{convertSettings({colorSpace:'SRGB',get colorType(){throw sentinel}})}
+            catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('invalid enum ordering');
+            rejected=false;try{convertSettings({colorType:Symbol()})}catch(e){rejected=e instanceof TypeError}
+            if(!rejected)throw Error('symbol enum accepted');true
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
         assert!(result.boolean_value(scope));
     }
 

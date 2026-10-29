@@ -48,7 +48,7 @@ impl Source {
             .get(&node)
             .cloned()
             .map(Ok)
-            .unwrap_or_else(|| empty_canvas_bitmap(width, height))?;
+            .unwrap_or_else(|| canvas_context_settings::empty(&self.owner, node, width, height))?;
         bitmap.origin_clean &= !self.owner.tainted_canvases.borrow().contains(&node);
         Ok(bitmap)
     }
@@ -216,6 +216,12 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                 {
                     return Ok(Some(context));
                 }
+                let settings = canvas_context_settings::parse(scope, args.get(1))?;
+                let source = identify(scope, owner.into()).ok_or_else(|| error("InvalidStateError"))?;
+                let node = source.backing.node.get().ok_or_else(|| error("InvalidStateError"))?;
+                if let Some(context) = owner.get_private(scope, key).filter(|value| value.is_object()) {
+                    return Ok(Some(context));
+                }
                 let template = source
                     .owner
                     .instance_templates
@@ -237,6 +243,7 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                     return Err(V8BindingError::Allocation("offscreen context ownership"));
                 }
                 source.backing.context.set(true);
+                source.owner.canvas_context_settings.borrow_mut().insert(node, settings);
                 Ok(Some(context.into()))
             }
             5 => {
