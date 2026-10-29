@@ -2181,6 +2181,8 @@ pub struct BindingCanvasTextInput {
     pub fonts: oryn_layout::canvas_text::font_inputs::Prepared,
     pub native_owner: Rc<dyn std::any::Any>,
     pub witness: (oryn_dom::MutationCursor, u64, u64, u64),
+    /// Pure owning-isolate retirement check retained by native shaping.
+    pub cancelled: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
 }
 pub trait BindingLayoutProvider {
     fn validate_canvas_text_input(
@@ -2887,7 +2889,7 @@ pub struct V8BindingState {
     control_event_tasks: RefCell<VecDeque<(NodeId, v8::Global<v8::Object>)>>,
     stylesheet_event_tasks: RefCell<VecDeque<stylesheet_event_task::Task>>,
     window_messages: RefCell<window_messages::Queue>,
-    control_tasks_retired: Cell<bool>,
+    control_tasks_retired: ExecutionRetirement,
     execution_suspended: Cell<bool>,
     worker_tasks_closed: Cell<bool>,
     message_port_dispatches:
@@ -3920,6 +3922,7 @@ impl V8BindingState {
 
     /// Retire execution services without destroying detached DOM wrappers.
     pub fn retire_execution(&self) {
+        self.control_tasks_retired.cancel_native();
         font_loading::cancel_retired(self);
         if let Some(identity)=self.native_input_identity.borrow().as_ref(){identity.retired.store(true,std::sync::atomic::Ordering::Release);}
         // Extract before cancellation can run native cleanup/reenter ownership.
@@ -51682,8 +51685,9 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             !canceled.load(std::sync::atomic::Ordering::Acquire),
             "test cancellation flag is not a retirement hook"
         );
+        assert!(allocation.owner_cancelled(), "execution retirement revokes native allocation independently of resource cancellation");
         assert!(
-            matches!(allocation.reserve(8),Err(error) if error=="retained allocation snapshot expired")
+            matches!(allocation.reserve(8),Err(error) if error=="native allocation owner retired")
         );
     }
 

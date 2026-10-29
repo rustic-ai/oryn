@@ -1,8 +1,33 @@
 // Native embedding admission for known retained allocations. This uses the
 // owning isolate's existing ledger and configured heap limit, never a CSS cap.
+#[derive(Default)]
+struct ExecutionRetirement {
+    retired: std::cell::Cell<bool>,
+    native: std::sync::Arc<std::sync::Mutex<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+}
+impl ExecutionRetirement {
+    fn get(&self) -> bool { self.retired.get() }
+    fn cancel_native(&self) {
+        self.native.lock().unwrap_or_else(std::sync::PoisonError::into_inner).store(true, std::sync::atomic::Ordering::Release);
+    }
+    fn set(&self, retired: bool) {
+        self.cancel_native();
+        if !retired {
+            // A replacement execution gets a new token. Old captured native
+            // work cannot regain authority when the binding becomes live.
+            *self.native.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        }
+        self.retired.set(retired);
+    }
+    #[cfg(test)]
+    fn capture(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> { self.native.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() }
+}
 pub struct BindingRetainedAllocation {
     ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
     retired: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    // Allocation accounting follows a reused Window's current execution;
+    // individual native work captures a permanently revocable token below.
+    execution_retired: std::sync::Arc<std::sync::Mutex<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
     snapshot: std::sync::Mutex<RetainedSnapshot>,
     owner_thread: std::thread::ThreadId,
     // Payload fields above dispose before the independent metadata lease.
@@ -35,6 +60,13 @@ impl BindingRetainedAllocation {
     /// author callbacks or native admission while a style engine is borrowed.
     pub fn owner_cancelled(&self) -> bool {
         self.retired.load(std::sync::atomic::Ordering::Acquire)
+            || self.execution_retired.lock().map(|token| token.load(std::sync::atomic::Ordering::Acquire)).unwrap_or(true)
+    }
+    pub fn capture_cancellation(&self) -> Result<std::sync::Arc<dyn Fn() -> bool + Send + Sync>, String> {
+        let token = self.execution_retired.lock().map_err(|_| "execution retirement token poisoned")?.clone();
+        let retired = self.retired.clone();
+        Ok(std::sync::Arc::new(move || retired.load(std::sync::atomic::Ordering::Acquire)
+            || token.load(std::sync::atomic::Ordering::Acquire)))
     }
     pub fn invalidate(&self) -> Result<(), String> {
         self.snapshot.lock()
@@ -56,8 +88,7 @@ impl BindingRetainedAllocation {
         BindingRetainedAllocationScope { allocation: self.clone(), epoch }
     }
     pub fn reserve(&self, bytes: usize) -> Result<std::sync::Arc<dyn Send + Sync>, String> {
-        use std::sync::atomic::Ordering;
-        if self.retired.load(Ordering::Acquire) {
+        if self.owner_cancelled() {
             return Err("native allocation owner retired".into());
         }
         if std::thread::current().id() != self.owner_thread {
@@ -77,14 +108,13 @@ impl BindingRetainedAllocation {
                 .ok_or("retained allocation metadata overflow")?,
             &receipt,
         )?;
-        if self.retired.load(Ordering::Acquire) {
+        if self.owner_cancelled() {
             return Err("native allocation owner retired".into());
         }
         Ok(std::sync::Arc::new(lease))
     }
     pub fn copy_text(&self, source: &str) -> Result<BindingRetainedText, String> {
-        use std::sync::atomic::Ordering;
-        if self.retired.load(Ordering::Acquire) {
+        if self.owner_cancelled() {
             return Err("native allocation owner retired".into());
         }
         if std::thread::current().id() != self.owner_thread {
@@ -95,9 +125,9 @@ impl BindingRetainedAllocation {
             .lock()
             .map_err(|_| "retained allocation snapshot poisoned")?.receipt.clone();
         let receipt = snapshot.ok_or("retained allocation snapshot expired")?;
-        let text = crate::idb_owned_admission::Text::copy_string_from_receipt(&self.ledger, source, &receipt, || self.retired.load(Ordering::Acquire))
+        let text = crate::idb_owned_admission::Text::copy_string_from_receipt(&self.ledger, source, &receipt, || self.owner_cancelled())
             .map_err(str::to_owned)?;
-        if self.retired.load(Ordering::Acquire) {
+        if self.owner_cancelled() {
             return Err("native allocation owner retired".into());
         }
         Ok(BindingRetainedText { text })
@@ -119,7 +149,7 @@ impl BindingRetainedAllocation {
         if epoch == u64::MAX { return Err(V8BindingError::Allocation("retained scope epoch exhausted")); }
         let result = (|| {
         if scope.is_execution_terminating()
-            || self.retired.load(std::sync::atomic::Ordering::Acquire)
+            || self.owner_cancelled()
         {
             return Err(V8BindingError::JavaScriptException);
         }
@@ -134,7 +164,7 @@ impl BindingRetainedAllocation {
                 .map_err(V8BindingError::EventCallback)?;
         }
         if scope.is_execution_terminating()
-            || self.retired.load(std::sync::atomic::Ordering::Acquire)
+            || self.owner_cancelled()
         {
             return Err(V8BindingError::JavaScriptException);
         }
@@ -253,6 +283,7 @@ impl V8BindingState {
         let admission = BindingRetainedAllocation {
             ledger: self.idb_payload_ledger.clone(),
             retired,
+            execution_retired: self.control_tasks_retired.native.clone(),
             snapshot: std::sync::Mutex::new(RetainedSnapshot::default()),
             owner_thread: std::thread::current().id(),
             native_metadata: None,
@@ -265,6 +296,22 @@ impl V8BindingState {
 #[cfg(test)]
 mod nested_retained_scope_controls {
     use super::*;
+    #[test]
+    fn execution_replacement_never_revives_captured_native_work() {
+        use std::sync::atomic::Ordering;
+        let retirement = ExecutionRetirement::default();
+        let original = retirement.capture();
+        assert!(!original.load(Ordering::Acquire));
+        retirement.cancel_native();
+        assert!(original.load(Ordering::Acquire));
+        assert!(!retirement.get());
+        retirement.set(true);
+        assert!(retirement.get());
+        retirement.set(false);
+        assert!(!retirement.get());
+        assert!(!retirement.capture().load(Ordering::Acquire));
+        assert!(original.load(Ordering::Acquire));
+    }
     #[test]
     fn nested_native_scopes_preserve_outer_admission_and_explicit_revocation() {
         crate::v8_bindings::tests::initialize_v8();
@@ -296,6 +343,14 @@ mod nested_retained_scope_controls {
         assert!(allocation.reserve(8).is_err(), "revoked outer epoch must not resurrect admission");
         drop(outer);
         let fresh = state.enter_retained_allocation(scope).unwrap();
+        let old_work = allocation.capture_cancellation().unwrap();
+        state.control_tasks_retired.set(true);
+        assert!(old_work());
+        assert!(allocation.reserve(8).is_err());
+        state.control_tasks_retired.set(false);
+        assert!(old_work(), "replacement cannot revive captured work");
+        assert!(allocation.reserve(8).is_ok(), "replacement preserves the reused accounting ledger");
+        assert!(!allocation.capture_cancellation().unwrap()());
         retired.store(true, std::sync::atomic::Ordering::Release);
         assert!(state.enter_retained_allocation(scope).is_err());
         assert!(allocation.reserve(8).is_err());

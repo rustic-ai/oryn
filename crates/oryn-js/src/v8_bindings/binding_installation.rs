@@ -230,7 +230,7 @@ pub(super) fn create_state(
         control_event_tasks: RefCell::new(VecDeque::new()),
         stylesheet_event_tasks: RefCell::new(VecDeque::new()),
         window_messages: RefCell::new(window_messages::Queue::new(context)),
-        control_tasks_retired: Cell::new(false),
+        control_tasks_retired: ExecutionRetirement::default(),
         execution_suspended: Cell::new(false),
         worker_tasks_closed: Cell::new(false),
         message_port_dispatches: RefCell::new(BTreeMap::new()),

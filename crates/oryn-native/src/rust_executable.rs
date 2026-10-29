@@ -1126,6 +1126,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             || Rc::as_ptr(&input.native_owner) as *const () != Rc::as_ptr(&self.retained_stylesheets) as *const () {
             return Err("foreign Canvas text input owner".into());
         }
+        if (input.cancelled)() { return Err("Canvas text input owner retired".into()); }
         let borrowed = dom.try_borrow().map_err(|_| "Canvas text validation DOM borrow conflict")?;
         let request = input.request;
         let identity = self.native_document_identity.get().ok_or("retired Canvas text input owner")?;
@@ -1173,8 +1174,12 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             if witness != (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get()) {
                 return Err("Canvas text input changed during capture".into());
             }
+            let allocation = self.native_retained_allocation.try_borrow().map_err(|_| "Canvas text cancellation owner borrow conflict")?
+                .as_ref().cloned().ok_or("Canvas text cancellation owner unavailable")?;
+            let cancelled = allocation.capture_cancellation()?;
+            if cancelled() { return Err("Canvas text cancellation owner retired".into()); }
             Ok(oryn_js::v8_bindings::BindingCanvasTextInput { request, viewport: captured.input.viewport, fonts,
-                native_owner: self.retained_stylesheets.clone(), witness })
+                native_owner: self.retained_stylesheets.clone(), witness, cancelled })
         })())
     }
     fn resolve_canvas_font(
@@ -20202,7 +20207,7 @@ mod tests {
             assert_eq!(text.request, request);
             assert!(text.viewport.width > 0. && text.viewport.height > 0.);
             let style = result.shaping.declarations.iter().cloned().collect();
-            let shaped = oryn_layout::canvas_text::shape("Ag", &style, text.viewport, &text.fonts.fonts).unwrap();
+            let shaped = oryn_layout::canvas_text::shape_controlled("Ag", &style, text.viewport, &text.fonts.fonts, Some(text.cancelled.clone())).unwrap();
             assert_eq!(shaped.font_size, 30.);
             assert!(shaped.width > 0.);
             provider.validate_canvas_text_input(&dom, &text).unwrap();
@@ -20249,6 +20254,35 @@ mod tests {
             assert!(provider.validate_canvas_text_input(&dom, &current).is_err());
             Ok(())
         }).unwrap();
+    }
+    #[test]
+    fn native_canvas_font_retirement_cancels_retained_shape_measurement() {
+        use oryn_js::v8_bindings::BindingCanvasFontRequest;
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas></canvas>").unwrap();
+        let realm = page.top_realm;
+        let provider = page.agent.host.native_layout_provider_in_realm(realm).unwrap();
+        let (shape, input) = page.agent.host.with_public_font_scope(realm, |_scope, state| {
+            provider.compute_layout(&BTreeMap::new()).unwrap();
+            let dom = state.dom();
+            let canvas = dom.borrow().arena().iter().find(|(_, node)| matches!(&node.kind,
+                NodeKind::Element { name, .. } if name.local.as_ref() == "canvas")).map(|(id, _)| id).unwrap();
+            let request = BindingCanvasFontRequest { document: state.document_root(), canvas,
+                document_generation: state.document_generation(), stream_epoch: state.document_stream_epoch(),
+                style_generation: provider.layout_revision(), source_element: true };
+            let font = provider.resolve_canvas_font(&dom, request, "20px sans-serif", &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().unwrap();
+            let input = provider.prepare_canvas_text_input(&dom, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().unwrap();
+            let style = font.shaping.declarations.iter().cloned().collect();
+            let shape = oryn_layout::canvas_text::shape_controlled("Ag", &style, input.viewport, &input.fonts.fonts, Some(input.cancelled.clone())).unwrap();
+            Ok((shape, input))
+        }).unwrap();
+        assert!(!(input.cancelled)());
+        assert!(shape.ink_bounds().unwrap().is_some());
+        let state = page.agent.host.retained_binding_state(realm).unwrap();
+        state.retire_execution();
+        assert!((input.cancelled)());
+        assert!(provider.validate_canvas_text_input(&state.dom(), &input).is_err());
+        assert_eq!(shape.ink_bounds().unwrap_err(), oryn_layout::LayoutError::Cancelled);
+        assert_eq!(shape.font_metrics().unwrap_err(), oryn_layout::LayoutError::Cancelled);
     }
     #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
