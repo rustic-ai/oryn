@@ -312,37 +312,54 @@ pub fn collect_items(
                     // Use the native option ownership algorithm, including
                     // options under permitted intervening descendants. An
                     // optgroup outside a select is ordinary rendered content.
-                    for option in dom
+                    let options: std::collections::BTreeSet<_> = dom
                         .select_options(node)
                         .map_err(|error| format!("{error:?}"))?
                         .into_iter()
-                        .rev()
-                    {
-                        let mut cursor =
-                            dom.parent(option).map_err(|error| format!("{error:?}"))?;
-                        let mut hidden = false;
-                        while let Some(ancestor) = cursor {
-                            visited += 1;
-                            if visited > 2_097_152 {
-                                return Err("rendered text traversal budget exceeded".into());
-                            }
-                            if ancestor == node {
-                                break;
-                            }
-                            if styles
-                                .get(&key(ancestor))
-                                .and_then(|style| style.get("display"))
-                                .is_some_and(|display| display == "none")
-                            {
-                                hidden = true;
-                                break;
-                            }
-                            cursor = dom.parent(ancestor).map_err(|error| format!("{error:?}"))?;
+                        .collect();
+                    let mut pending: Vec<_> = record.children.iter().rev()
+                        .map(|child| (*child, false, false)).collect();
+                    let mut sequence = Vec::new();
+                    while let Some((child, in_group, end_group)) = pending.pop() {
+                        visited += 1;
+                        if visited > 2_097_152 {
+                            return Err("rendered text traversal budget exceeded".into());
                         }
-                        if !hidden {
-                            stack.push((option, false));
+                        let child_record = dom.arena().get(child)
+                            .map_err(|error| format!("{error:?}"))?;
+                        if styles.get(&key(child))
+                            .and_then(|style| style.get("display"))
+                            .is_some_and(|display| display == "none") {
+                            continue;
                         }
+                        if end_group {
+                            sequence.push((child, true));
+                            continue;
+                        }
+                        if options.contains(&child) {
+                            sequence.push((child, false));
+                            continue;
+                        }
+                        let tag = match &child_record.kind {
+                            NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => name.local.as_ref(),
+                            NodeKind::Document | NodeKind::ShadowRoot { .. } => continue,
+                            _ => "",
+                        };
+                        if matches!(tag, "option" | "select" | "hr" | "datalist")
+                            || tag == "optgroup" && in_group {
+                            continue;
+                        }
+                        if tag == "optgroup" {
+                            // Required breaks exist even when the group has no
+                            // options. Use exit events for both boundaries to
+                            // avoid publishing arbitrary group child text.
+                            sequence.push((child, true));
+                            pending.push((child, true, true));
+                        }
+                        pending.extend(child_record.children.iter().rev()
+                            .map(|child| (*child, in_group || tag == "optgroup", false)));
                     }
+                    stack.extend(sequence.into_iter().rev());
                 } else {
                     stack.extend(record.children.iter().rev().map(|child| (*child, false)));
                 }
@@ -610,6 +627,26 @@ mod tests {
             oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()),
             "two"
         );
+    }
+    #[test]
+    fn empty_select_optgroup_retains_breaks_without_arbitrary_text() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let before = dom.create_text("a");
+        let select = dom.create_element("select");
+        let group = dom.create_element("optgroup");
+        let stray = dom.create_text("ignored");
+        let after = dom.create_text("bc");
+        dom.append_child(root, before).unwrap();
+        dom.append_child(root, select).unwrap();
+        dom.append_child(select, group).unwrap();
+        dom.append_child(group, stray).unwrap();
+        dom.append_child(root, after).unwrap();
+        let text = BTreeMap::from([(key(before), "a".into()), (key(stray), "ignored".into()), (key(after), "bc".into())]);
+        assert_eq!(oryn_dom::reduce_rendered_text(collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()), "a\nbc");
+        let styles = BTreeMap::from([(key(group), Arc::new(BTreeMap::from([("display".into(), "none".into())])))]);
+        assert_eq!(oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()), "abc");
+        assert_eq!(oryn_dom::reduce_rendered_text(collect_items(&dom, select, &BTreeMap::new(), &text).unwrap()), "");
     }
     #[test]
     fn svg_definitions_and_graphics_do_not_publish_authored_text() {
