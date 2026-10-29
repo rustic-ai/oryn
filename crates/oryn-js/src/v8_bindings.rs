@@ -35936,6 +35936,9 @@ fn get_attribute_value<'s>(
     if interface == "Element" && member == "classList" {
         return associated_wrapper(scope, state, node, "DOMTokenList");
     }
+    if interface == "HTMLIFrameElement" && member == "sandbox" {
+        return associated_wrapper(scope, state, node, "DOMTokenList.sandbox");
+    }
     if matches!(interface, "HTMLElement" | "SVGElement") && member == "style" {
         return associated_wrapper(scope, state, node, "CSSStyleDeclaration");
     }
@@ -47740,7 +47743,7 @@ fn associated_wrapper<'s>(
     let association = interface;
     let interface = if matches!(
         interface,
-        "DOMTokenList.rel" | "DOMTokenList.blocking" | "DOMTokenList.for" | "DOMTokenList.sizes"
+        "DOMTokenList.rel" | "DOMTokenList.blocking" | "DOMTokenList.for" | "DOMTokenList.sizes" | "DOMTokenList.sandbox"
     ) {
         "DOMTokenList"
     } else {
@@ -47811,6 +47814,9 @@ fn associated_wrapper<'s>(
     }
     if association == "DOMTokenList.for" {
         token_lists::mark_attribute(scope, object, "for")?;
+    }
+    if association == "DOMTokenList.sandbox" {
+        token_lists::mark_attribute(scope, object, "sandbox")?;
     }
     let key = v8::String::new(scope, "oryn.associated.owner")
         .ok_or(V8BindingError::Allocation("associated object owner"))?;

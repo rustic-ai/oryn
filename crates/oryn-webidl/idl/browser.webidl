@@ -2305,7 +2305,7 @@ interface HTMLIFrameElement : HTMLElement {
   [CEReactions] attribute DOMString name;
   [CEReactions] attribute DOMString src;
   [CEReactions] attribute (TrustedHTML or DOMString) srcdoc;
-  attribute DOMString sandbox;
+  [SameObject, PutForwards=value] readonly attribute DOMTokenList sandbox;
   [CEReactions] attribute DOMString referrerPolicy;
   readonly attribute Document? contentDocument;
   readonly attribute any contentWindow;

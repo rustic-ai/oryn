@@ -166,6 +166,7 @@ fn attribute(
             Some("for") => "for",
             Some("blocking") => "blocking",
             Some("sizes") => "sizes",
+            Some("sandbox") => "sandbox",
             _ => "class",
         },
     )
@@ -309,7 +310,14 @@ pub(super) fn associated_call<'s>(
                 member: "TypeError: attribute has no supported tokens".into(),
             });
         }
-        let supported = if attribute(scope, object)? == "blocking" {
+        let supported = if attribute(scope, object)? == "sandbox" {
+            matches!(tokens[0].to_ascii_lowercase().as_str(),
+                "allow-downloads" | "allow-forms" | "allow-modals" | "allow-orientation-lock"
+                | "allow-pointer-lock" | "allow-popups" | "allow-popups-to-escape-sandbox"
+                | "allow-presentation" | "allow-same-origin" | "allow-scripts"
+                | "allow-storage-access-by-user-activation" | "allow-top-navigation"
+                | "allow-top-navigation-by-user-activation" | "allow-top-navigation-to-custom-protocols")
+        } else if attribute(scope, object)? == "blocking" {
             tokens[0] == "render"
         } else {
             let owner = binding_state_for_receiver(scope, object)
@@ -423,6 +431,35 @@ pub(super) fn associated_call<'s>(
 #[cfg(test)]
 mod blocking_tests {
     use super::*;
+    #[test]
+    fn sandbox_list_is_live_native_same_object_and_preserves_owner_after_conversion() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap()));
+        let _state=install_generated_bindings(scope,context,dom,RealmId(0),1).unwrap();
+        assert!(super::super::test_eval::eval(scope,r#"(()=>{
+            const check=(ok)=>{if(!ok)throw Error('sandbox token control')};
+            const frame=document.createElement('iframe'),list=frame.sandbox;
+            check(list instanceof DOMTokenList&&list===frame.sandbox);
+            list.remove('allow-scripts');check(!frame.hasAttribute('sandbox'));
+            frame.sandbox='allow-scripts unknown allow-scripts';
+            check(list.length===2&&list[0]==='allow-scripts'&&frame.getAttribute('sandbox')==='allow-scripts unknown allow-scripts');
+            check(list.supports('allow-scripts')&&list.supports('ALLOW-SAME-ORIGIN'));
+            check(!list.supports('allow-\u017fcripts')&&!list.supports('allow-same-or\u0130gin')&&!list.supports('unknown'));
+            list.remove('allow-scripts');check(frame.getAttribute('sandbox')==='unknown');
+            frame.setAttribute('sandbox','allow-forms');check(list.value==='allow-forms');
+            frame.classList.add('separate');check(!list.contains('separate'));
+            const other=document.implementation.createHTMLDocument('other');
+            frame.sandbox={toString(){other.adoptNode(frame);return 'allow-popups'}};
+            check(list===frame.sandbox&&list.value==='allow-popups'&&frame.ownerDocument===other);
+            let bad=false;try{list.add('two tokens')}catch(e){bad=e.name==='InvalidCharacterError'}check(bad);
+            check(list.value==='allow-popups');
+            return true;
+        })()"#).is_true());
+    }
     #[test]
     fn blocking_lists_are_distinct_live_native_associations() {
         super::super::tests::initialize_v8();
