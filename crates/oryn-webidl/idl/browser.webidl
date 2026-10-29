@@ -60,6 +60,7 @@ interface Window : EventTarget {
   [Replaceable] readonly attribute long screenTop;
   [Replaceable] readonly attribute long innerWidth;
   [Replaceable] readonly attribute long innerHeight;
+  [Replaceable] readonly attribute double devicePixelRatio;
   [Replaceable] readonly attribute long outerWidth;
   [Replaceable] readonly attribute long outerHeight;
   [SameObject] readonly attribute Navigation navigation;

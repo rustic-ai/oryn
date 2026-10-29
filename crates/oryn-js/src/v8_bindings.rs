@@ -17793,6 +17793,19 @@ fn generated_attribute_getter<'s>(
         }
         return;
     }
+    if interface == "Window" && member == "devicePixelRatio" {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "device pixel ratio requires Window receiver");
+            return;
+        }
+        if !global_events::check_window_access(scope, &state, args.this()) {
+            return;
+        }
+        let ratio = state.layout_provider.borrow().as_ref()
+            .map_or(1., |provider| provider.native_device_pixel_ratio());
+        return_value.set_double(ratio);
+        return;
+    }
     if interface == "Window" && matches!(member, "innerWidth" | "innerHeight") {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "viewport attribute requires Window receiver");

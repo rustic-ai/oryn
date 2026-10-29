@@ -715,8 +715,22 @@ mod tests {
         let provider = Rc::new(Provider(Cell::new(1.)));
         state.set_layout_provider(provider.clone());
         let host = Rc::new(Host::default());state.set_platform_host(host.clone());
+        assert!(super::super::test_eval::eval(scope, "devicePixelRatio===1").is_true());
         poll(scope, &state).unwrap();
         provider.0.set(2.);assert!(ready(&state));poll(scope, &state).unwrap();
+        assert!(super::super::test_eval::eval(scope, "devicePixelRatio===2").is_true());
+        assert!(super::super::test_eval::eval(scope, r#"(()=>{
+            let owner=window;
+            while(owner&&!Object.getOwnPropertyDescriptor(owner,'devicePixelRatio'))owner=Object.getPrototypeOf(owner);
+            const d=Object.getOwnPropertyDescriptor(owner,'devicePixelRatio');
+            globalThis.nativeDprGetter=d.get;
+            if(typeof d.get!=='function'||typeof d.set!=='function'||!d.enumerable||!d.configurable)return false;
+            for(const receiver of [{},document]){
+                try{d.get.call(receiver);return false}catch(e){if(!(e instanceof TypeError))return false}
+            }
+            window.devicePixelRatio=99;
+            return window.devicePixelRatio===99&&Object.getOwnPropertyDescriptor(window,'devicePixelRatio').value===99;
+        })()"#).is_true());
         provider.0.set(1.);
         let node = dom.borrow().find_by_id("p").unwrap();
         dom.borrow_mut().set_attribute(node, "imagesizes", "200px").unwrap();
@@ -726,6 +740,7 @@ mod tests {
         }).collect::<Vec<_>>();
         assert_eq!(urls, ["https://example.test/small.png", "https://example.test/large.png"]);
         assert!(!host.cancelled.borrow().is_empty());
+        assert!(super::super::test_eval::eval(scope, "delete window.devicePixelRatio;typeof devicePixelRatio==='undefined'&&nativeDprGetter.call(window)===1").is_true());
         assert!(super::super::test_eval::eval(scope, r#"(()=>{
             const link=document.getElementById('p');
             link.imageSrcset='\ud800';if(link.getAttribute('imagesrcset')!=='\ufffd'||link.imageSrcset!=='\ufffd')return false;
