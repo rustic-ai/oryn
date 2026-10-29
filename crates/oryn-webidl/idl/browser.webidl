@@ -1233,7 +1233,9 @@ interface HTMLMarqueeElement : HTMLElement {
 interface HTMLHeadElement : HTMLElement {};
 
 [Exposed=Window]
-interface HTMLTitleElement : HTMLElement {};
+interface HTMLTitleElement : HTMLElement {
+  [CEReactions] attribute DOMString text;
+};
 
 [Exposed=Window]
 interface HTMLBaseElement : HTMLElement {
@@ -2195,6 +2197,7 @@ interface HTMLFormElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLAnchorElement : HTMLElement {
+  [CEReactions] attribute DOMString text;
   [CEReactions, Reflect] attribute DOMString coords;
   [CEReactions, Reflect] attribute DOMString charset;
   [CEReactions, Reflect] attribute DOMString rev;

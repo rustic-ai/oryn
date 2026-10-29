@@ -27556,6 +27556,31 @@ pub const H_T_M_L_ALL_COLLECTION_MEMBERS: &[GeneratedMember] = &[
 pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(7405568),
+        name: "text",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: true,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(7405569),
         name: "coords",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27580,7 +27605,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405569),
+        id: GeneratedMemberId(7405570),
         name: "charset",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27605,7 +27630,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405570),
+        id: GeneratedMemberId(7405571),
         name: "rev",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27630,7 +27655,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405571),
+        id: GeneratedMemberId(7405572),
         name: "shape",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27655,7 +27680,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405572),
+        id: GeneratedMemberId(7405573),
         name: "hreflang",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27680,7 +27705,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405573),
+        id: GeneratedMemberId(7405574),
         name: "type",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27705,7 +27730,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405574),
+        id: GeneratedMemberId(7405575),
         name: "download",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27730,7 +27755,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405575),
+        id: GeneratedMemberId(7405576),
         name: "relList",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27755,7 +27780,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405576),
+        id: GeneratedMemberId(7405577),
         name: "rel",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27780,7 +27805,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405577),
+        id: GeneratedMemberId(7405578),
         name: "ping",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27805,7 +27830,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405578),
+        id: GeneratedMemberId(7405579),
         name: "name",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27830,7 +27855,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405579),
+        id: GeneratedMemberId(7405580),
         name: "href",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27855,7 +27880,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405580),
+        id: GeneratedMemberId(7405581),
         name: "origin",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27880,7 +27905,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405581),
+        id: GeneratedMemberId(7405582),
         name: "protocol",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27905,7 +27930,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405582),
+        id: GeneratedMemberId(7405583),
         name: "username",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27930,7 +27955,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405583),
+        id: GeneratedMemberId(7405584),
         name: "password",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27955,7 +27980,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405584),
+        id: GeneratedMemberId(7405585),
         name: "host",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -27980,7 +28005,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405585),
+        id: GeneratedMemberId(7405586),
         name: "hostname",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28005,7 +28030,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405586),
+        id: GeneratedMemberId(7405587),
         name: "port",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28030,7 +28055,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405587),
+        id: GeneratedMemberId(7405588),
         name: "pathname",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28055,7 +28080,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405588),
+        id: GeneratedMemberId(7405589),
         name: "search",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28080,7 +28105,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405589),
+        id: GeneratedMemberId(7405590),
         name: "hash",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28105,7 +28130,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405590),
+        id: GeneratedMemberId(7405591),
         name: "target",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28130,7 +28155,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405591),
+        id: GeneratedMemberId(7405592),
         name: "referrerPolicy",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -28155,7 +28180,7 @@ pub const H_T_M_L_ANCHOR_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(7405592),
+        id: GeneratedMemberId(7405593),
         name: "interestForElement",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -48348,7 +48373,33 @@ pub const H_T_M_L_TIME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
 ];
-pub const H_T_M_L_TITLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
+pub const H_T_M_L_TITLE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        id: GeneratedMemberId(12320768),
+        name: "text",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: true,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+];
 pub const H_T_M_L_TRACK_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(12386304),

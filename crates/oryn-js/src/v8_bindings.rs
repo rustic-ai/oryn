@@ -34853,6 +34853,41 @@ mod reflected_long_tests {
     use super::{parse_reflected_long, reflected_span};
 
     #[test]
+    fn title_and_anchor_text_use_native_tree_mutations() {
+        use super::*;
+        super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<!doctype html><html><body></body></html>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const eq=(a,b,label)=>{if(a!==b)throw Error(label)};
+            for(const [tag,ctor] of [['title',HTMLTitleElement],['a',HTMLAnchorElement]]) {
+                const node=document.createElement(tag);
+                node.append('first');
+                const child=document.createElement('span');child.textContent='nested';node.append(child);
+                node.append(document.createComment('ignored'),'last');
+                eq(node.text,tag==='title'?'firstlast':'firstnestedlast','native getter');
+                const descriptor=Object.getOwnPropertyDescriptor(ctor.prototype,'text');
+                eq(descriptor.enumerable,true,'enumerable');eq(descriptor.configurable,true,'configurable');
+                let rejected=false;try{descriptor.get.call({})}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'getter brand');
+                node.text='\ud800';eq(node.text,'\ud800','lossless text');
+                eq(node.childNodes.length,1,'replacement');eq(child.parentNode,null,'detachment');
+                node.text={toString(){node.append('during conversion');return 'converted'}};
+                eq(node.text,'converted','author conversion before replacement');
+                node.text=null;eq(node.text,'null','DOMString null');
+                node.text='';eq(node.childNodes.length,0,'empty replacement');
+            }
+            return true;
+        })()"#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
+    }
+
+    #[test]
     fn generated_reflection_uses_native_attributes_and_validates_receiver() {
         use super::*;
         super::tests::initialize_v8();
@@ -37061,7 +37096,7 @@ fn get_attribute_value<'s>(
                 .is_some(),
         )
         .into(),
-        ("HTMLScriptElement", "text") => {
+        ("HTMLScriptElement" | "HTMLTitleElement", "text") => {
             let text = dom.arena().child_text_units(node, usize::MAX)?;
             v8_string(scope, &oryn_dom::dom_string::from_units(&text))?
         }
@@ -37073,7 +37108,7 @@ fn get_attribute_value<'s>(
         {
             v8::null(scope).into()
         }
-        (_, "textContent") => {
+        (_, "textContent") | ("HTMLAnchorElement", "text") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
         ("Element", "tagName") => v8_string(scope, &reflected_node_name(state, node)?)?,
@@ -38815,6 +38850,7 @@ fn set_attribute_value<'s>(
                 | ("CharacterData", "data")
                 | ("HTMLElement", "innerText" | "outerText")
                 | ("HTMLScriptElement", "text" | "innerText")
+                | ("HTMLTitleElement" | "HTMLAnchorElement", "text")
                 | ("Element", "id" | "className")
         ) {
         Some(wrap_node(scope, state, node)?)
@@ -38888,7 +38924,7 @@ fn set_attribute_value<'s>(
         let string = value
             .to_string(scope)
             .ok_or(V8BindingError::JavaScriptException)?;
-        if matches!(interface, "Node" | "CharacterData" | "HTMLScriptElement")
+        if matches!(interface, "Node" | "CharacterData" | "HTMLScriptElement" | "HTMLTitleElement" | "HTMLAnchorElement")
             || matches!(member, "innerText" | "outerText")
             || (interface == "Element" && matches!(member, "id" | "className"))
         {
@@ -38979,7 +39015,7 @@ fn set_attribute_value<'s>(
             dom.set_attribute_node_value(node, value)?
         }
         (_, "textContent")
-        | ("HTMLScriptElement", "text") => {
+        | ("HTMLScriptElement" | "HTMLTitleElement" | "HTMLAnchorElement", "text") => {
             let text = matches!(
                 dom.arena().get(node)?.kind,
                 NodeKind::Text { .. } | NodeKind::CDataSection { .. }
