@@ -20355,6 +20355,47 @@ mod tests {
         "#).unwrap();
     }
     #[test]
+    fn native_canvas_font_feature_state_controls_shaping_and_font_reset() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c></canvas>").unwrap();
+        page.execute(r#"(()=>{
+            const c=document.getElementById('c'),ctx=c.getContext('2d');
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const choices={fontKerning:['auto','normal','none'],fontStretch:['ultra-condensed','extra-condensed','condensed','semi-condensed','normal','semi-expanded','expanded','extra-expanded','ultra-expanded'],fontVariantCaps:['normal','small-caps','all-small-caps','petite-caps','all-petite-caps','unicase','titling-caps'],textRendering:['auto','optimizeSpeed','optimizeLegibility','geometricPrecision']};
+            const defaults={fontKerning:'auto',fontStretch:'normal',fontVariantCaps:'normal',textRendering:'auto'};
+            for(const name of Object.keys(choices)){
+                check(ctx[name]===defaults[name],name+' default');
+                const d=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,name);
+                check(d&&typeof d.get==='function'&&typeof d.set==='function'&&d.enumerable&&d.configurable,name+' descriptor');
+                for(const value of choices[name]){ctx[name]=value;check(ctx[name]===value,name+' accepted '+value)}
+                const old=ctx[name];
+                for(const bad of ['bad',old.toUpperCase(),'','x'.repeat(10000)]){ctx[name]=bad;check(ctx[name]===old,name+' ignored invalid')}
+                let calls=0;ctx[name]={toString(){calls++;return choices[name][0]}};
+                check(calls===1&&ctx[name]===choices[name][0],name+' one conversion');
+                let error;try{d.set.call({}, {toString(){calls++;return 'normal'}})}catch(e){error=e}
+                check(error instanceof TypeError&&calls===1,name+' brand before conversion');
+                error=undefined;try{ctx[name]=Symbol()}catch(e){error=e}check(error instanceof TypeError,name+' symbol');
+            }
+            ctx.font='50px sans-serif';ctx.fontKerning='normal';ctx.textRendering='auto';
+            const kerned=ctx.measureText('AVATo').width;
+            ctx.fontKerning='none';const unkerned=ctx.measureText('AVATo').width;
+            check(unkerned>kerned,'native kerning glyph advances');
+            ctx.font='50px sans-serif';check(ctx.fontKerning==='none'&&ctx.measureText('AVATo').width===unkerned,'kerning preserved across font assignment');
+            ctx.fontKerning='auto';ctx.textRendering='optimizeSpeed';check(ctx.measureText('AVATo').width===unkerned,'speed hint native kerning');
+            ctx.fontKerning='normal';check(ctx.measureText('AVATo').width===kerned,'explicit kerning overrides speed hint');
+            ctx.fontVariantCaps='all-small-caps';ctx.font='51px serif';check(ctx.fontVariantCaps==='normal','font change resets caps');
+            ctx.fontVariantCaps='small-caps';ctx.font='invalid font';check(ctx.fontVariantCaps==='small-caps','invalid font preserves caps');
+            ctx.font='small-caps 50px serif';ctx.fontVariantCaps='normal';check(ctx.font.includes('small-caps'),'normal caps leaves shorthand');
+            ctx.fontStretch='expanded';ctx.fontVariantCaps='all-petite-caps';ctx.textRendering='geometricPrecision';ctx.fontKerning='none';
+            ctx.save();ctx.fontStretch='condensed';ctx.fontVariantCaps='normal';ctx.textRendering='auto';ctx.fontKerning='auto';ctx.restore();
+            check(ctx.fontStretch==='expanded'&&ctx.fontVariantCaps==='all-petite-caps'&&ctx.textRendering==='geometricPrecision'&&ctx.fontKerning==='none','save restore feature state');
+            c.width=c.width;for(const name of Object.keys(defaults))check(ctx[name]===defaults[name],name+' resize reset');
+            for(const name of Object.keys(defaults))ctx[name]=choices[name][choices[name].length-1];
+            ctx.reset();for(const name of Object.keys(defaults))check(ctx[name]===defaults[name],name+' explicit reset');
+            const off=new OffscreenCanvas(1,1).getContext('2d');
+            for(const name of Object.keys(defaults)){check(off[name]===defaults[name],name+' offscreen default');off[name]=choices[name][choices[name].length-1];check(off[name]===choices[name][choices[name].length-1],name+' offscreen setter')}
+        })();"#).unwrap();
+    }
+    #[test]
     fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
         let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c style='font-size:20px'></canvas>").unwrap();
         page.execute(r#"

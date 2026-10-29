@@ -9,6 +9,12 @@ pub(super) fn resolve(style: &BTreeMap<String, String>) -> Vec<FontFeature> {
             features.insert(feature.tag, feature);
         }
     };
+    // Rendering quality is a hint, not an alternate width formula. The speed
+    // preference suppresses optional kerning/common ligatures unless explicit
+    // font properties/features override it below. Required shaping stays on.
+    if crate::style_value(style, "text-rendering", "auto").eq_ignore_ascii_case("optimizeSpeed") {
+        add("\"kern\" 0, \"liga\" 0, \"clig\" 0");
+    }
     match crate::style_value(style, "font-kerning", "auto") {
         "none" => add("\"kern\" 0"),
         "normal" => add("\"kern\" 1"),
@@ -115,6 +121,26 @@ pub(super) fn variations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rendering_speed_hint_preserves_required_shaping_and_explicit_feature_precedence() {
+        let mut style = BTreeMap::from([("text-rendering".into(), "optimizeSpeed".into())]);
+        let value = |style: &BTreeMap<String, String>, tag: &str| resolve(style).iter()
+            .find(|feature| feature.tag.to_string() == tag).map(|feature| feature.value);
+        assert_eq!(value(&style, "kern"), Some(0));
+        assert_eq!(value(&style, "liga"), Some(0));
+        assert_eq!(value(&style, "clig"), Some(0));
+        assert_eq!(value(&style, "rlig"), None, "required shaping is not disabled");
+        style.insert("font-kerning".into(), "normal".into());
+        assert_eq!(value(&style, "kern"), Some(1));
+        style.insert("font-variant-ligatures".into(), "common-ligatures".into());
+        assert_eq!(value(&style, "liga"), Some(1));
+        style.insert("font-feature-settings".into(), "\"kern\" 0, \"liga\" 0".into());
+        assert_eq!(value(&style, "kern"), Some(0));
+        assert_eq!(value(&style, "liga"), Some(0));
+        for hint in ["auto", "optimizeLegibility", "geometricPrecision"] {
+            assert!(resolve(&BTreeMap::from([("text-rendering".into(), hint.into())])).is_empty());
+        }
+    }
     #[test]
     fn css_language_override_preserves_tag_bytes_and_decodes_escapes() {
         let parse = |value: &str| {

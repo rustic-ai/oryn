@@ -89,9 +89,11 @@ fn measure(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
         let font = draw.font.as_deref().unwrap_or(&current_font);
         let projection_bytes = font.shaping.declarations.iter().try_fold(0usize, |n, (key, value)| n.checked_add(128).and_then(|n| n.checked_add(key.len())).and_then(|n| n.checked_add(value.len())))
             .ok_or(V8BindingError::Allocation("Canvas shaping projection overflow"))?;
-        let _projection = font_loading::reserve_font_container(scope, &state, projection_bytes.checked_add(256).ok_or(V8BindingError::Allocation("Canvas shaping projection overflow"))?)?;
+        let _projection = font_loading::reserve_font_container(scope, &state, projection_bytes.checked_add(256)
+            .and_then(|bytes| bytes.checked_add(draw.shaping_projection_bytes()?)).ok_or(V8BindingError::Allocation("Canvas shaping projection overflow"))?)?;
         let mut style: BTreeMap<String, String> = font.shaping.declarations.iter().cloned().collect();
         style.insert("direction".into(), if rtl { "rtl" } else { "ltr" }.into());
+        draw.apply_shaping(&mut style);
         let input = provider.prepare_canvas_text_input(&state.dom, request, &states, state.document_scroll_offset(), &scrolls)
             .ok_or(V8BindingError::Allocation("Canvas measurement capture unavailable"))?.map_err(V8BindingError::Message)?;
         let shape = oryn_layout::canvas_text::shape_font_bytes_admitted(&text.value, &style, input.viewport, &input.fonts.fonts,

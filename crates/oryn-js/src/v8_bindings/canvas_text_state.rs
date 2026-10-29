@@ -37,6 +37,10 @@ pub(super) struct TextState {
     direction: &'static str,
     align: &'static str,
     baseline: &'static str,
+    kerning: &'static str,
+    stretch: &'static str,
+    caps: &'static str,
+    rendering: &'static str,
 }
 impl Default for TextState {
     fn default() -> Self {
@@ -45,6 +49,7 @@ impl Default for TextState {
             direction: "inherit",
             align: "start",
             baseline: "alphabetic",
+            kerning: "auto", stretch: "normal", caps: "normal", rendering: "auto",
         }
     }
 }
@@ -53,27 +58,50 @@ impl TextState {
         match name {
             "direction" => self.direction,
             "textAlign" => self.align,
+            "fontKerning" => self.kerning,
+            "fontStretch" => self.stretch,
+            "fontVariantCaps" => self.caps,
+            "textRendering" => self.rendering,
             _ => self.baseline,
         }
     }
+    fn choices(name: &str) -> &'static [&'static str] {
+        match name {
+            "direction" => &["ltr", "rtl", "inherit"],
+            "textAlign" => &["left", "right", "center", "start", "end"],
+            "textBaseline" => &["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"],
+            "fontKerning" => &["auto", "normal", "none"],
+            "fontStretch" => &["ultra-condensed", "extra-condensed", "condensed", "semi-condensed", "normal", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"],
+            "fontVariantCaps" => &["normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps"],
+            "textRendering" => &["auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"],
+            _ => &[],
+        }
+    }
     fn set(&mut self, name: &str, value: &str) {
-        match (name, value) {
-            ("direction", "ltr") => self.direction = "ltr",
-            ("direction", "rtl") => self.direction = "rtl",
-            ("direction", "inherit") => self.direction = "inherit",
-            ("textAlign", "left") => self.align = "left",
-            ("textAlign", "right") => self.align = "right",
-            ("textAlign", "center") => self.align = "center",
-            ("textAlign", "start") => self.align = "start",
-            ("textAlign", "end") => self.align = "end",
-            ("textBaseline", "top") => self.baseline = "top",
-            ("textBaseline", "hanging") => self.baseline = "hanging",
-            ("textBaseline", "middle") => self.baseline = "middle",
-            ("textBaseline", "alphabetic") => self.baseline = "alphabetic",
-            ("textBaseline", "ideographic") => self.baseline = "ideographic",
-            ("textBaseline", "bottom") => self.baseline = "bottom",
+        let Some(value) = Self::choices(name).iter().copied().find(|choice| *choice == value) else { return; };
+        match name {
+            "direction" => self.direction = value,
+            "textAlign" => self.align = value,
+            "textBaseline" => self.baseline = value,
+            "fontKerning" => self.kerning = value,
+            "fontStretch" => self.stretch = value,
+            "fontVariantCaps" => self.caps = value,
+            "textRendering" => self.rendering = value,
             _ => {}
         }
+    }
+    pub(super) fn apply_shaping(&self, style: &mut BTreeMap<String, String>) {
+        style.insert("font-kerning".into(), self.kerning.into());
+        style.insert("text-rendering".into(), self.rendering.into());
+        if self.stretch != "normal" { style.insert("font-stretch".into(), self.stretch.into()); }
+        // A normal caps override leaves the font shorthand's own caps in force.
+        if self.caps != "normal" { style.insert("font-variant-caps".into(), self.caps.into()); }
+    }
+    pub(super) fn shaping_projection_bytes(&self) -> Option<usize> {
+        [("font-kerning", self.kerning), ("text-rendering", self.rendering),
+            ("font-stretch", self.stretch), ("font-variant-caps", self.caps)]
+            .into_iter().try_fold(0usize, |bytes, (key, value)| bytes.checked_add(128)
+                .and_then(|bytes| bytes.checked_add(key.len())).and_then(|bytes| bytes.checked_add(value.len())))
     }
     pub(super) fn rtl(&self, inherited_rtl: bool) -> bool {
         match self.direction {
@@ -108,7 +136,7 @@ pub(super) fn install(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
-    for name in ["direction", "textAlign", "textBaseline", "font"] {
+    for name in ["direction", "textAlign", "textBaseline", "font", "fontKerning", "fontStretch", "fontVariantCaps", "textRendering"] {
         let key = v8::String::new(scope, name)
             .ok_or(V8BindingError::Allocation("canvas text state key"))?;
         let getter = v8::Function::builder(get)
@@ -132,10 +160,13 @@ pub(super) fn install(
     }
     Ok(())
 }
+fn receiver_state(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments) -> Option<Rc<V8BindingState>> {
+    let state = canvas_context_owner(scope, args.this()).and_then(|owner| binding_state_for_receiver(scope, owner));
+    if state.is_none() { throw_type_error(scope, "Canvas text state requires a native 2D context"); }
+    state
+}
 fn get(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
-        return;
-    };
+    let Some(state) = receiver_state(scope, &args) else { return; };
     let Ok(canvas) = canvas_receiver_node(scope, &state, &args) else {
         return;
     };
@@ -166,9 +197,7 @@ fn get(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
     }
 }
 fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::ReturnValue) {
-    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
-        return;
-    };
+    let Some(state) = receiver_state(scope, &args) else { return; };
     let Ok(canvas) = canvas_receiver_node(scope, &state, &args) else {
         return;
     };
@@ -255,14 +284,12 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
             {
                 return Err(V8BindingError::Message("InvalidStateError".into()));
             }
-            let obsolete = state
-                .canvas_draw_states
-                .borrow_mut()
-                .entry(canvas)
-                .or_default()
-                .text
-                .font
-                .replace(Rc::new(font));
+            let obsolete = {
+                let mut states = state.canvas_draw_states.borrow_mut();
+                let text = &mut states.entry(canvas).or_default().text;
+                text.caps = "normal";
+                text.font.replace(Rc::new(font))
+            };
             drop(obsolete);
             Ok(())
         })();
@@ -271,6 +298,10 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
         }
         return;
     }
+    // All accepted tokens are ASCII. Reject an overlength converted value
+    // before exporting it into an unbounded native String; ToString still ran.
+    let max = TextState::choices(&name).iter().map(|value| value.len()).max().unwrap_or(0);
+    if value.length() > max { return; }
     let value = value.to_rust_string_lossy(scope);
     state
         .canvas_draw_states
@@ -284,6 +315,21 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_canvas_feature_projection_preserves_shorthand_caps_and_width_defaults() {
+        let mut state = TextState::default();
+        let mut style = BTreeMap::from([("font-variant-caps".into(), "small-caps".into()), ("font-stretch".into(), "condensed".into())]);
+        state.apply_shaping(&mut style);
+        assert_eq!(style["font-variant-caps"], "small-caps");
+        assert_eq!(style["font-stretch"], "condensed");
+        state.set("fontVariantCaps", "all-small-caps");state.set("fontStretch", "expanded");
+        state.set("fontKerning", "none");state.set("textRendering", "optimizeSpeed");
+        state.apply_shaping(&mut style);
+        assert_eq!(style["font-variant-caps"], "all-small-caps");
+        assert_eq!(style["font-stretch"], "expanded");
+        assert_eq!(style["font-kerning"], "none");
+        assert_eq!(style["text-rendering"], "optimizeSpeed");
+    }
     #[test]
     fn native_canvas_owned_text_preserves_raw_whitespace_and_conversion_reentry() {
         super::super::tests::initialize_v8();

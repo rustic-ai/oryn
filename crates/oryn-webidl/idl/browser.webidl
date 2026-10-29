@@ -1607,6 +1607,10 @@ interface CanvasPattern {
 enum CanvasTextAlign { "start", "end", "left", "right", "center" };
 enum CanvasTextBaseline { "top", "hanging", "middle", "alphabetic", "ideographic", "bottom" };
 enum CanvasDirection { "ltr", "rtl", "inherit" };
+enum CanvasFontKerning { "auto", "normal", "none" };
+enum CanvasFontStretch { "ultra-condensed", "extra-condensed", "condensed", "semi-condensed", "normal", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded" };
+enum CanvasFontVariantCaps { "normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps" };
+enum CanvasTextRendering { "auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision" };
 
 [Exposed=(Window,Worker)]
 interface TextMetrics {
@@ -1626,6 +1630,10 @@ interface TextMetrics {
 
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  attribute CanvasFontKerning fontKerning;
+  attribute CanvasFontStretch fontStretch;
+  attribute CanvasFontVariantCaps fontVariantCaps;
+  attribute CanvasTextRendering textRendering;
   TextMetrics measureText(DOMString text);
   attribute DOMString font;
   attribute CanvasTextAlign textAlign;
@@ -1705,6 +1713,10 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  attribute CanvasFontKerning fontKerning;
+  attribute CanvasFontStretch fontStretch;
+  attribute CanvasFontVariantCaps fontVariantCaps;
+  attribute CanvasTextRendering textRendering;
   TextMetrics measureText(DOMString text);
   attribute DOMString font;
   attribute CanvasTextAlign textAlign;
