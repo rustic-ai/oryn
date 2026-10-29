@@ -34903,10 +34903,11 @@ mod reflected_long_tests {
             for(const [member,attribute,keywords] of [
                 ['shadowRootMode','shadowrootmode',['open','closed']],
                 ['shadowRootSlotAssignment','shadowrootslotassignment',['named','manual']]]) {
-                eq(node[member],'','missing enum');
+                const fallback=member==='shadowRootSlotAssignment'?'named':'';
+                eq(node[member],fallback,'missing enum');
                 for(const raw of ['', 'invalid', ' open ', ...keywords, ...keywords.map(x=>x.toUpperCase())]) {
                     node[member]=raw;eq(node.getAttribute(attribute),raw,'raw setter');
-                    eq(node[member],keywords.includes(raw.toLowerCase())?raw.toLowerCase():'','known values');
+                    eq(node[member],keywords.includes(raw.toLowerCase())?raw.toLowerCase():fallback,'known values');
                 }
                 node[member]='\ud800';eq(node.getAttribute(attribute),'\ud800','lossless setter');
                 const descriptor=Object.getOwnPropertyDescriptor(HTMLTemplateElement.prototype,member);
@@ -34928,6 +34929,14 @@ mod reflected_long_tests {
             eq(root.clonable,true,'parser clonable');eq(root.serializable,true,'parser serializable');
             const slot=root.querySelector('slot');eq(slot.assignedNodes().length,0,'no named auto assignment');
             slot.assign(host.firstElementChild);eq(slot.assignedNodes()[0],host.firstElementChild,'actual manual assignment');
+            const serialized=host.getHTML({serializableShadowRoots:true});
+            eq(serialized.includes('shadowrootslotassignment="manual"'),true,'serialize manual mode');
+            const copy=document.createElement('div');copy.setHTMLUnsafe(serialized);
+            eq(copy.shadowRoot.slotAssignment,'manual','roundtrip manual mode');
+            const copiedSlot=copy.shadowRoot.querySelector('slot');
+            eq(copiedSlot.assignedNodes().length,0,'roundtrip does not auto assign');
+            copiedSlot.assign(copy.firstElementChild);
+            eq(copiedSlot.assignedNodes()[0],copy.firstElementChild,'roundtrip manual assign');
             return true;
         })()"#).unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -37517,7 +37526,8 @@ fn get_attribute_value<'s>(
                 ("shadowrootslotassignment", ["named", "manual"])
             };
             let raw = record.attributes.get_null(attribute).map_or("", String::as_str);
-            let value = keywords.into_iter().find(|keyword| raw.eq_ignore_ascii_case(keyword)).unwrap_or("");
+            let default = if member == "shadowRootSlotAssignment" { "named" } else { "" };
+            let value = keywords.into_iter().find(|keyword| raw.eq_ignore_ascii_case(keyword)).unwrap_or(default);
             v8_string(scope, value)?
         }
         ("HTMLTemplateElement", "buffer") => {

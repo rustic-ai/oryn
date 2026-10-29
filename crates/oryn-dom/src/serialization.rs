@@ -275,6 +275,9 @@ pub fn serialize_html_with_options(
                         if shadow_record.delegates_focus {
                             opening.push_str(" shadowrootdelegatesfocus=\"\"");
                         }
+                        if shadow_record.manual_slot_assignment {
+                            opening.push_str(" shadowrootslotassignment=\"manual\"");
+                        }
                         if shadow_record.shadow_serializable {
                             opening.push_str(" shadowrootserializable=\"\"");
                         }
