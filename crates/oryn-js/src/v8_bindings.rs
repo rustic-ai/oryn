@@ -2179,8 +2179,13 @@ pub struct BindingCanvasTextInput {
     pub request: BindingCanvasFontRequest,
     pub viewport: oryn_common::v4::ViewportState,
     pub fonts: oryn_layout::canvas_text::font_inputs::Prepared,
+    pub native_owner: Rc<dyn std::any::Any>,
+    pub witness: (oryn_dom::MutationCursor, u64, u64, u64),
 }
 pub trait BindingLayoutProvider {
+    fn validate_canvas_text_input(
+        &self, _dom: &Rc<RefCell<DomRuntime>>, _input: &BindingCanvasTextInput,
+    ) -> Result<(), String> { Err("native Canvas text validation unavailable".into()) }
     fn prepare_canvas_text_input(
         &self, _dom: &Rc<RefCell<DomRuntime>>, _request: BindingCanvasFontRequest,
         _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,

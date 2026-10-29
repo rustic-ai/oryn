@@ -1119,6 +1119,25 @@ mod selected_paint_image_load;
 pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn validate_canvas_text_input(
+        &self, dom: &Rc<RefCell<DomRuntime>>, input: &oryn_js::v8_bindings::BindingCanvasTextInput,
+    ) -> Result<(), String> {
+        if !Rc::ptr_eq(dom, &self.dom)
+            || Rc::as_ptr(&input.native_owner) as *const () != Rc::as_ptr(&self.retained_stylesheets) as *const () {
+            return Err("foreign Canvas text input owner".into());
+        }
+        let borrowed = dom.try_borrow().map_err(|_| "Canvas text validation DOM borrow conflict")?;
+        let request = input.request;
+        let identity = self.native_document_identity.get().ok_or("retired Canvas text input owner")?;
+        if request.document != self.document || identity.document != request.document
+            || identity.document_generation != request.document_generation || identity.stream_epoch != request.stream_epoch
+            || self.layout_revision() != request.style_generation || self.viewport.get() != input.viewport
+            || borrowed.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document)
+            || input.witness != (borrowed.mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get()) {
+            return Err("stale Canvas text input".into());
+        }
+        self.retained_revision_admission()?.checkpoint()
+    }
     fn prepare_canvas_text_input(
         &self, dom: &Rc<RefCell<DomRuntime>>, request: oryn_js::v8_bindings::BindingCanvasFontRequest,
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>, scroll: (f64, f64),
@@ -1154,7 +1173,8 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             if witness != (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get()) {
                 return Err("Canvas text input changed during capture".into());
             }
-            Ok(oryn_js::v8_bindings::BindingCanvasTextInput { request, viewport: captured.input.viewport, fonts })
+            Ok(oryn_js::v8_bindings::BindingCanvasTextInput { request, viewport: captured.input.viewport, fonts,
+                native_owner: self.retained_stylesheets.clone(), witness })
         })())
     }
     fn resolve_canvas_font(
@@ -20178,20 +20198,31 @@ mod tests {
             let result = query(request, "1.5em sans-serif").unwrap();
             assert_eq!(result.style.get_font().font_size.computed_size().px(), 30.);
             let text_query = |request| provider.prepare_canvas_text_input(&dom, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap();
-            let text = text_query(request).unwrap();
+            let mut text = text_query(request).unwrap();
             assert_eq!(text.request, request);
             assert!(text.viewport.width > 0. && text.viewport.height > 0.);
             let style = result.shaping.declarations.iter().cloned().collect();
             let shaped = oryn_layout::canvas_text::shape("Ag", &style, text.viewport, &text.fonts.fonts).unwrap();
             assert_eq!(shaped.font_size, 30.);
             assert!(shaped.width > 0.);
+            provider.validate_canvas_text_input(&dom, &text).unwrap();
+            let owner = std::mem::replace(&mut text.native_owner, Rc::new(()));
+            assert!(provider.validate_canvas_text_input(&dom, &text).is_err());
+            text.native_owner = owner;
+            let viewport = text.viewport;
+            text.viewport.width += 1.;
+            assert!(provider.validate_canvas_text_input(&dom, &text).is_err());
+            text.viewport = viewport;
+            provider.validate_canvas_text_input(&dom, &text).unwrap();
             assert!(text_query(BindingCanvasFontRequest { source_element: false, ..request }).is_ok());
             let foreign = Rc::new(RefCell::new(oryn_dom::html::parse("<canvas></canvas>").into_runtime().unwrap()));
             assert!(provider.prepare_canvas_text_input(&foreign, request, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap().is_err());
+            assert!(provider.validate_canvas_text_input(&foreign, &text).is_err());
             {
                 let _exclusive = dom.borrow_mut();
                 assert!(text_query(request).is_err(), "conflicting DOM borrow must fail without panic");
                 assert!(matches!(query(request, "20px sans-serif"), Err(Error::Native(_))));
+                assert!(provider.validate_canvas_text_input(&dom, &text).is_err());
             }
             assert!(matches!(query(request, "not a font"), Err(Error::Syntax)));
             for stale in [BindingCanvasFontRequest { document_generation: request.document_generation + 1, ..request },
@@ -20201,6 +20232,21 @@ mod tests {
                 assert!(matches!(query(stale, "20px sans-serif"), Err(Error::Native(_))));
                 assert!(text_query(stale).is_err());
             }
+            let native = provider.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+            for revision in [&native.font_revision, &native.animation_revision, &native.stylesheet_graph_revision] {
+                let current = text_query(BindingCanvasFontRequest { style_generation: provider.layout_revision(), ..request }).unwrap();
+                provider.validate_canvas_text_input(&dom, &current).unwrap();
+                let original = revision.get();
+                revision.set(original + 1);
+                assert!(provider.validate_canvas_text_input(&dom, &current).is_err());
+                revision.set(original);
+                provider.compute_layout(&BTreeMap::new()).unwrap();
+                let restored = text_query(BindingCanvasFontRequest { style_generation: provider.layout_revision(), ..request }).unwrap();
+                provider.validate_canvas_text_input(&dom, &restored).unwrap();
+            }
+            let current = text_query(BindingCanvasFontRequest { style_generation: provider.layout_revision(), ..request }).unwrap();
+            dom.borrow_mut().set_attribute(canvas, "title", "changed").unwrap();
+            assert!(provider.validate_canvas_text_input(&dom, &current).is_err());
             Ok(())
         }).unwrap();
     }
