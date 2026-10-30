@@ -903,7 +903,9 @@ video>img:-moz-native-anonymous {
 }
 
 audio:not([controls]) {
-    display: none !important;
+    /* Audio without controls is hidden by default, but author display rules
+       can give it a CSS box. Its media fallback children remain unrendered. */
+    display: none;
 }
 
 audio[controls] {

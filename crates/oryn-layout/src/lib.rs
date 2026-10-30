@@ -3478,9 +3478,9 @@ fn project_rendered_tree(input: &LayoutInput) -> LayoutInput {
     projected
 }
 
-/// Canvas fallback remains in the selector/DOM tree but does not generate
-/// boxes or text when the canvas bitmap is rendered.
-fn suppress_canvas_fallback(input: &mut LayoutInput) {
+/// Media fallback remains in the selector/DOM tree but does not generate
+/// boxes or text in the native rendered tree.
+fn suppress_replaced_media_fallback(input: &mut LayoutInput) {
     let mut removed = BTreeSet::new();
     let by_id = input
         .nodes
@@ -3490,7 +3490,8 @@ fn suppress_canvas_fallback(input: &mut LayoutInput) {
     let mut pending = input
         .nodes
         .iter()
-        .filter(|node| node.namespace == "http://www.w3.org/1999/xhtml" && node.tag == "canvas")
+        .filter(|node| node.namespace == "http://www.w3.org/1999/xhtml"
+            && matches!(node.tag.as_str(), "canvas" | "audio" | "video"))
         .flat_map(|node| node.children.iter().copied())
         .collect::<Vec<_>>();
     while let Some(id) = pending.pop() {
@@ -3504,7 +3505,8 @@ fn suppress_canvas_fallback(input: &mut LayoutInput) {
     drop(by_id);
     input.nodes.retain(|node| !removed.contains(&node.id));
     for node in &mut input.nodes {
-        if node.namespace == "http://www.w3.org/1999/xhtml" && node.tag == "canvas" {
+        if node.namespace == "http://www.w3.org/1999/xhtml"
+            && matches!(node.tag.as_str(), "canvas" | "audio" | "video") {
             node.children.clear();
             node.content = Some(Vec::new());
             node.text.clear();
@@ -4094,7 +4096,7 @@ fn compute_with_scrollbar_gutters(
         || !input.shadow_trees.roots.is_empty()
         || input.nodes.iter().any(|node| {
             node.namespace == "http://www.w3.org/1999/xhtml"
-                && matches!(node.tag.as_str(), "canvas" | "select")
+                && matches!(node.tag.as_str(), "canvas" | "audio" | "video" | "select")
         })
         || computed_styles.values().any(|style| {
             matches!(
@@ -4140,7 +4142,7 @@ fn compute_with_scrollbar_gutters(
                 );
             }
         }
-        suppress_canvas_fallback(&mut rendered);
+        suppress_replaced_media_fallback(&mut rendered);
         control_state::project_select_buttons(&mut rendered, &computed_styles);
         let rendered_nodes = rendered
             .nodes
@@ -11410,6 +11412,44 @@ mod tests {
         let output = compute(&column_fixture("", vec![a, b]), &LayoutLimits::default()).unwrap();
         assert_eq!(output.control_states[&2], output.control_states[&3]);
         assert_ne!(output.computed_styles[&2]["appearance"], "none");
+    }
+
+    #[test]
+    fn audio_default_display_yields_to_author_cascade() {
+        let audio = node(2, Some(1), "audio", "fallback");
+        let mut input = column_fixture("", vec![audio]);
+        let hidden = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(hidden.computed_styles[&2]["display"], "none");
+        assert!(hidden.geometry[&2].box_model.is_none());
+        input.nodes.iter_mut().find(|node| node.id == 2).unwrap()
+            .attributes.insert("style".into(), "display:block".into());
+        let rendered = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(rendered.computed_styles[&2]["display"], "block");
+        assert!(rendered.geometry[&2].box_model.is_some());
+        input.nodes.iter_mut().find(|node| node.id == 2).unwrap()
+            .attributes.insert("style".into(), "display:none".into());
+        let hidden_again = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(hidden_again.computed_styles[&2]["display"], "none");
+        assert!(hidden_again.geometry[&2].box_model.is_none());
+    }
+
+    #[test]
+    fn media_fallback_descendants_do_not_generate_boxes_or_text() {
+        for tag in ["audio", "video"] {
+            let mut media = node(2, Some(1), tag, "");
+            media.children = vec![3];
+            media.content = Some(vec![LayoutContent::Element(3)]);
+            let mut source = node(3, Some(2), "source", "fallback");
+            source.content = Some(vec![LayoutContent::Text { node_id: 30, text: "fallback".into() }]);
+            let mut input = column_fixture("audio,video,source{display:block}", vec![media]);
+            input.nodes.push(source);
+            let output = compute(&input, &LayoutLimits::default()).unwrap();
+            assert!(output.geometry[&2].box_model.is_some(), "{tag} root generates a box");
+            assert!(output.geometry[&3].box_model.is_none(), "{tag} fallback does not generate a box");
+            assert!(output.resolved_text.iter().all(|run| run.semantic_source.as_ref()
+                .is_none_or(|source| source.spans.iter().all(|span| span.source_node != Some(30)))),
+                "{tag} fallback does not paint text");
+        }
     }
 
     #[test]
