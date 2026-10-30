@@ -9618,10 +9618,12 @@ fn parse_dom_parser_document<'s>(
     markup: &str,
     media_type: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let mut parsed = if media_type == "text/html" {
-        oryn_dom::html::parse_inert_dom_string(markup)
+    let (mut parsed, mut details) = if media_type == "text/html" {
+        let (parsed, runtime) = oryn_dom::html::parse_inert_dom_string_with_runtime(markup);
+        let details = top_layer::InertDetailsImport::capture(scope, state, &runtime)?;
+        (parsed, Some(details))
     } else {
-        oryn_dom::xml::parse(markup, media_type)
+        (oryn_dom::xml::parse(markup, media_type), None)
     };
     if let Some(metadata) = parsed
         .dom
@@ -9631,12 +9633,24 @@ fn parse_dom_parser_document<'s>(
     {
         metadata.url = Some(state.request_initiator_url()?);
     }
+    let mut import_admission_error = None;
     let document = state
         .dom
         .borrow_mut()
-        .import_subtree(&parsed.dom, parsed.document)?;
+        .import_subtree_with_identity(&parsed.dom, parsed.document, &mut |original, target| {
+            if let Some(details) = details.as_mut()
+                && let Err(error) = details.imported(original, target,
+                    parsed.dom.get(original)?.template_host.is_some())
+            {
+                import_admission_error = Some(error);
+                return Err(DomError::MigrationCapacity);
+            }
+            Ok(())
+        }).map_err(|error| import_admission_error.unwrap_or_else(|| error.into()))?;
     state.derive_document_provenance(state.document_root(), document)?;
-    wrap_node(scope, state, document)
+    let wrapper = wrap_node(scope, state, document)?;
+    if let Some(details) = details { details.publish(state, document)?; }
+    Ok(wrapper)
 }
 
 fn document_parse_html_unsafe_static<'s>(

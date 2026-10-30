@@ -81,7 +81,13 @@ fn queue_with_kind(
     let allocation = state.capture_retained_allocation(
         scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
     )?;
-    let document = state.document_root();
+    let document = if details {
+        state.dom.borrow().node_document(node)?
+            .ok_or(V8BindingError::Allocation("details target document"))?
+    } else { state.document_root() };
+    if details && !owns_details_document(state, document) {
+        return Err(V8BindingError::Allocation("details publication owner"));
+    }
     let target = DeferredDomTarget::new(&state.dom, node, document)?;
     let source = source
         .map(|source| DeferredDomTarget::new(&state.dom, source, document))
@@ -122,6 +128,172 @@ fn queue_with_kind(
     Ok(())
 }
 
+fn owns_details_document(state: &V8BindingState, document: NodeId) -> bool {
+    document == state.document_root()
+        || state.popover_publications.borrow().inert_documents.iter().any(|(owner, epoch)|
+            *owner == document && *epoch == state.document_authority_epoch())
+}
+
+pub(super) struct InertDetailsImport {
+    issuer: (u64, u64),
+    source_document: NodeId,
+    imported_document: Option<NodeId>,
+    changes: VecDeque<(oryn_dom::AttributePresenceChange, Option<NodeId>)>,
+    _storage: Option<(usize, Arc<dyn Send + Sync>)>,
+    template_contents: VecDeque<NodeId>,
+    template_storage: Option<(usize, Arc<dyn Send + Sync>)>,
+    allocation: BindingRetainedAllocation,
+}
+
+impl InertDetailsImport {
+    pub(super) fn capture(
+        scope: &mut v8::PinScope,
+        state: &V8BindingState,
+        runtime: &SharedDom,
+    ) -> Result<Self, V8BindingError> {
+        let allocation = state.capture_retained_allocation(
+            scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )?;
+        let mut changes = VecDeque::new();
+        let mut storage = None;
+        let mut cursor = oryn_dom::MutationCursor(0);
+        loop {
+            let read = runtime.borrow().next_attribute_presence_change(cursor, "open");
+            if read.truncated {
+                return Err(V8BindingError::Allocation("inert details parser journal truncated"));
+            }
+            let Some(change) = read.change else { break };
+            if runtime.borrow().is_element(change.node,
+                "http://www.w3.org/1999/xhtml", "details")
+            {
+                if changes.len() >= 4096 {
+                    return Err(V8BindingError::Allocation("inert details parser transition limit"));
+                }
+                reserve_queue_growth(&allocation, &mut changes, &mut storage, 1)?;
+                changes.push_back((change, None));
+            }
+            cursor = read.next;
+        }
+        Ok(Self { issuer: (state.instance_id, state.document_authority_epoch()),
+            source_document: runtime.borrow().document(), imported_document: None,
+            changes, _storage: storage, allocation,
+            template_contents: VecDeque::new(), template_storage: None })
+    }
+
+    pub(super) fn imported(&mut self, original: NodeId, target: NodeId,
+        template_content: bool) -> Result<(), V8BindingError> {
+        if original == self.source_document { self.imported_document = Some(target); }
+        for (change, mapped) in &mut self.changes {
+            if change.node == original { *mapped = Some(target); }
+        }
+        if template_content {
+            if self.template_contents.len() >= 4096 {
+                return Err(V8BindingError::Allocation("inert template document owner limit"));
+            }
+            reserve_queue_growth(&self.allocation, &mut self.template_contents,
+                &mut self.template_storage, 1)?;
+            self.template_contents.push_back(target);
+        }
+        Ok(())
+    }
+
+    pub(super) fn publish(self, state: &V8BindingState, root: NodeId) -> Result<(), V8BindingError> {
+        if state.execution_retired()
+            || self.issuer != (state.instance_id, state.document_authority_epoch())
+            || self.imported_document != Some(root)
+        {
+            return Err(V8BindingError::Allocation("inert details publisher authority"));
+        }
+        let epoch = state.document_authority_epoch();
+        let mut tasks: VecDeque<ToggleTask> = VecDeque::new();
+        let mut task_storage = None;
+        let mut owners = VecDeque::new();
+        let mut owner_storage = None;
+        if !owns_details_document(state, root) {
+            reserve_queue_growth(&self.allocation, &mut owners, &mut owner_storage, 1)?;
+            owners.push_back((root, epoch));
+        }
+        for content in &self.template_contents {
+            let document = state.dom.borrow().node_document(*content)?
+                .ok_or(V8BindingError::Allocation("inert template imported document"))?;
+            if !owns_details_document(state, document) && !owners.contains(&(document, epoch)) {
+                reserve_queue_growth(&self.allocation, &mut owners, &mut owner_storage, 1)?;
+                owners.push_back((document, epoch));
+            }
+        }
+        for (change, mapped) in &self.changes {
+            let node = mapped.ok_or(V8BindingError::Allocation("inert details import identity"))?;
+            let document = state.dom.borrow().node_document(node)?
+                .ok_or(V8BindingError::Allocation("inert details imported document"))?;
+            if !owns_details_document(state, document) && !owners.contains(&(document, epoch)) {
+                reserve_queue_growth(&self.allocation, &mut owners, &mut owner_storage, 1)?;
+                owners.push_back((document, epoch));
+            }
+            let old = if change.was_present { "open" } else { "closed" };
+            let new = if change.is_present { "open" } else { "closed" };
+            if let Some(task) = tasks.iter_mut().find(|task|
+                task.target.node == node && task.target.document == document)
+            { task.new = new; continue }
+            reserve_queue_growth(&self.allocation, &mut tasks, &mut task_storage, 1)?;
+            tasks.push_back(ToggleTask {
+                details: true, target: DeferredDomTarget::new(&state.dom, node, document)?,
+                source: None, old, new, epoch, dispatch: None,
+            });
+        }
+        let mut registry = state.popover_publications.borrow_mut();
+        registry.inert_documents.retain(|(document, owner_epoch)|
+            *owner_epoch == epoch && state.dom.borrow().arena().get(*document).is_ok());
+        let mut wake = state.deferred_platform_tasks.borrow_mut();
+        if registry.inert_documents.len().saturating_add(owners.len()) > 4096
+            || registry.toggles.len().saturating_add(tasks.len()) > 4096
+            || wake.len().saturating_add(tasks.len()) > 4096
+        { return Err(V8BindingError::Allocation("inert details publication capacity")); }
+        let Registry { inert_documents, inert_document_storage, toggles, toggle_storage, .. }
+            = &mut *registry;
+        reserve_queue_growth(&self.allocation, inert_documents, inert_document_storage, owners.len())?;
+        reserve_queue_growth(&self.allocation, toggles, toggle_storage, tasks.len())?;
+        reserve_queue_growth(&self.allocation, &mut wake,
+            &mut state.deferred_task_queue_storage.borrow_mut(), tasks.len())?;
+        // Everything below is admitted native bookkeeping: no fallible work
+        // and no author callbacks can expose a partially published batch.
+        inert_documents.append(&mut owners);
+        for _ in 0..tasks.len() { wake.push_back(DeferredPlatformTask::ToggleEvent); }
+        toggles.append(&mut tasks);
+        Ok(())
+    }
+}
+
+/// Creator-only native registration. IDs do not root the inert document graph;
+/// wrappers and pending notification leases own their independent lifetimes.
+pub(super) fn register_inert_document(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    document: NodeId,
+) -> Result<(), V8BindingError> {
+    if state.execution_retired()
+        || !matches!(state.dom.borrow().arena().get(document)?.kind, NodeKind::Document)
+    {
+        return Err(V8BindingError::Allocation("inert document creator authority"));
+    }
+    let epoch = state.document_authority_epoch();
+    let allocation = state.capture_retained_allocation(
+        scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let mut registry = state.popover_publications.borrow_mut();
+    registry.inert_documents.retain(|(document, owner_epoch)|
+        *owner_epoch == epoch && state.dom.borrow().arena().get(*document).is_ok());
+    if document == state.document_root()
+        || registry.inert_documents.iter().any(|(owner, _)| *owner == document)
+    { return Ok(()) }
+    if registry.inert_documents.len() >= 4096 {
+        return Err(V8BindingError::Allocation("inert document publication owner limit"));
+    }
+    let Registry { inert_documents, inert_document_storage, .. } = &mut *registry;
+    reserve_queue_growth(&allocation, inert_documents, inert_document_storage, 1)?;
+    inert_documents.push_back((document, epoch));
+    Ok(())
+}
+
 /// Independent journal ownership covers reflection, Attr, namespace-aware and
 /// parser mutations without consuming the observer/custom-element cursors.
 pub(super) fn collect_details_mutations(
@@ -136,7 +308,8 @@ pub(super) fn collect_details_mutations(
         if let Some(change) = read.change {
             let node = change.node;
             if state.dom.borrow().is_element(node, "http://www.w3.org/1999/xhtml", "details")
-                && state.dom.borrow().node_document(node)? == Some(state.document_root())
+                && state.dom.borrow().node_document(node)?
+                    .is_some_and(|document| owns_details_document(state, document))
             {
                 let context = state.global_object.to_local(scope)
                     .and_then(|global| global.get_creation_context(scope))
@@ -183,7 +356,8 @@ pub(super) fn dispatch_toggle(
     let result = (|| -> Result<bool, V8BindingError> {
         if state.execution_retired()
             || task.epoch != if task.details { state.document_authority_epoch() } else { state.document_stream_epoch() }
-            || task.target.document != state.document_root()
+            || (if task.details { !owns_details_document(state, task.target.document) }
+                else { task.target.document != state.document_root() })
             || state
                 .dom
                 .borrow()
@@ -549,6 +723,8 @@ pub(super) struct Registry {
     retry: Option<Instant>,
     polling: bool,
     toggles: VecDeque<ToggleTask>,
+    inert_documents: VecDeque<(NodeId, u64)>,
+    inert_document_storage: Option<(usize, Arc<dyn Send + Sync>)>,
     toggle_storage: Option<(usize, Arc<dyn Send + Sync>)>,
     toggle_retry: Option<Instant>,
     toggle_dispatching: bool,
@@ -964,6 +1140,257 @@ pub(super) fn toggle(
 mod tests {
     use super::*;
     use oryn_dom::html;
+    fn inert_details_owner_fixture<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        state: &Rc<V8BindingState>,
+    ) -> NodeId {
+        let source = v8::String::new(scope, r#"
+            globalThis.ownerDocument=new DOMParser().parseFromString('<details></details>','text/html');
+            globalThis.ownerDetails=ownerDocument.querySelector('details');
+            globalThis.ownerEvents=[];
+            ownerDetails.ontoggle=e=>ownerEvents.push(e.oldState+'|'+e.newState+'|'+e.isTrusted);
+            ownerDetails;
+        "#).unwrap();
+        let value = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        let (_, node) = node_identity::argument(scope, value).unwrap().unwrap();
+        let document = state.dom.borrow().node_document(node).unwrap().unwrap();
+        register_inert_document(scope, state, document).unwrap();
+        node
+    }
+
+    #[test]
+    fn inert_details_owner_dispatches_native_task_in_actual_document() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let node = inert_details_owner_fixture(scope, &state);
+        queue_with_kind(scope, &state, node, "closed", "open", None, true).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "ownerEvents.join(',')==='closed|open|true'&&ownerDetails.ownerDocument===ownerDocument").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn inert_details_owner_cancels_task_after_adoption() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let node = inert_details_owner_fixture(scope, &state);
+        queue_with_kind(scope, &state, node, "closed", "open", None, true).unwrap();
+        let source = v8::String::new(scope, "document.body.appendChild(ownerDetails)").unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "ownerEvents.length===0&&ownerDetails.ownerDocument===document").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn dom_parser_details_initial_toggle_uses_inert_document_owner() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.parsedDetailsDocument=new DOMParser().parseFromString('<details open></details>','text/html');
+            globalThis.parsedDetails=parsedDetailsDocument.querySelector('details');
+            globalThis.parsedToggleEvents=[];
+            parsedDetails.ontoggle=e=>parsedToggleEvents.push([
+                e.oldState,e.newState,e.isTrusted,e.target===parsedDetails,
+                parsedDetails.ownerDocument===parsedDetailsDocument
+            ].join('|'));
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        collect_slot_notifications(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "parsedToggleEvents.join(',')==='closed|open|true|true|true'").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn dom_parser_details_later_mutation_retains_creator_publication() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.laterDoc=new DOMParser().parseFromString('<details></details>','text/html');
+            globalThis.laterDetails=laterDoc.querySelector('details');
+            globalThis.laterEvents=[];
+            laterDetails.ontoggle=e=>laterEvents.push(e.oldState+'|'+e.newState);
+            laterDetails.open=true;
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        collect_slot_notifications(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "laterEvents.join(',')==='closed|open'&&laterDetails.ownerDocument===laterDoc").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn dom_parser_details_template_later_mutation_uses_separate_owner() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.templateDoc=new DOMParser().parseFromString(
+                '<template id=t><details></details></template>','text/html');
+            globalThis.templateDetails=templateDoc.getElementById('t').content.querySelector('details');
+            globalThis.templateEvents=[];
+            templateDetails.ontoggle=e=>templateEvents.push(e.oldState+'|'+e.newState+'|'+e.isTrusted);
+            templateDetails.open=true;
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        collect_slot_notifications(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "templateEvents.join(',')==='closed|open|true'&&templateDetails.ownerDocument!==templateDoc&&templateDetails.ownerDocument!==document").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn inert_details_missing_import_identity_does_not_publish_partial_batch() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let (_, runtime) = html::parse_inert_dom_string_with_runtime("<details open></details>");
+        let mut batch = InertDetailsImport::capture(scope, &state, &runtime).unwrap();
+        batch.imported(runtime.borrow().document(), state.document_root(), false).unwrap();
+        let owners = state.popover_publications.borrow().inert_documents.len();
+        let tasks = state.popover_publications.borrow().toggles.len();
+        let wake = state.deferred_platform_tasks.borrow().len();
+        assert!(batch.publish(&state, state.document_root()).is_err());
+        assert_eq!(state.popover_publications.borrow().inert_documents.len(), owners);
+        assert_eq!(state.popover_publications.borrow().toggles.len(), tasks);
+        assert_eq!(state.deferred_platform_tasks.borrow().len(), wake);
+    }
+
+    #[test]
+    fn inert_details_publication_rejects_foreign_and_stale_creator() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let first = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let (_, runtime) = html::parse_inert_dom_string_with_runtime("<body></body>");
+        let mut foreign = InertDetailsImport::capture(scope, &first, &runtime).unwrap();
+        foreign.imported(runtime.borrow().document(), first.document_root(), false).unwrap();
+        let other_context = v8::Context::new(scope, Default::default());
+        let other_scope = &mut v8::ContextScope::new(scope, other_context);
+        let other = install_generated_bindings(other_scope, other_context, dom, RealmId(1), 1).unwrap();
+        assert!(foreign.publish(&other, other.document_root()).is_err());
+        assert!(other.popover_publications.borrow().inert_documents.is_empty());
+        let mut stale = InertDetailsImport::capture(other_scope, &other, &runtime).unwrap();
+        stale.imported(runtime.borrow().document(), other.document_root(), false).unwrap();
+        other.document_authority_epoch.set(other.document_authority_epoch()+1);
+        assert!(stale.publish(&other, other.document_root()).is_err());
+        assert!(other.popover_publications.borrow().inert_documents.is_empty());
+    }
+
+    #[test]
+    fn inert_details_publication_rejects_retired_creator() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let (_, runtime) = html::parse_inert_dom_string_with_runtime("<body></body>");
+        let mut batch = InertDetailsImport::capture(scope, &state, &runtime).unwrap();
+        batch.imported(runtime.borrow().document(), state.document_root(), false).unwrap();
+        state.retire_execution();
+        assert!(batch.publish(&state, state.document_root()).is_err());
+        assert!(state.popover_publications.borrow().inert_documents.is_empty());
+        assert!(state.popover_publications.borrow().toggles.is_empty());
+    }
+
+    #[test]
+    fn inert_details_publication_capacity_refusal_keeps_existing_queues() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let node = inert_details_owner_fixture(scope, &state);
+        let document = state.dom.borrow().node_document(node).unwrap().unwrap();
+        let (_, runtime) = html::parse_inert_dom_string_with_runtime("<details open></details>");
+        let mut batch = InertDetailsImport::capture(scope, &state, &runtime).unwrap();
+        let original = runtime.borrow().next_attribute_presence_change(oryn_dom::MutationCursor(0), "open").change.unwrap().node;
+        batch.imported(runtime.borrow().document(), document, false).unwrap();
+        batch.imported(original, node, false).unwrap();
+        let allocation = state.capture_retained_allocation(scope,
+            Arc::new(std::sync::atomic::AtomicBool::new(false))).unwrap();
+        {
+            let mut wake = state.deferred_platform_tasks.borrow_mut();
+            let additional = 4096-wake.len();
+            reserve_queue_growth(&allocation, &mut wake,
+                &mut state.deferred_task_queue_storage.borrow_mut(), additional).unwrap();
+            for _ in 0..additional { wake.push_back(DeferredPlatformTask::ToggleEvent); }
+        }
+        let owners = state.popover_publications.borrow().inert_documents.len();
+        let tasks = state.popover_publications.borrow().toggles.len();
+        assert!(batch.publish(&state, document).is_err());
+        assert_eq!(state.popover_publications.borrow().inert_documents.len(), owners);
+        assert_eq!(state.popover_publications.borrow().toggles.len(), tasks);
+        assert_eq!(state.deferred_platform_tasks.borrow().len(), 4096);
+    }
+
+    #[test]
+    fn dom_parser_details_group_preserves_initial_coalesced_transitions() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.groupDoc=new DOMParser().parseFromString(
+                '<details id=first name=g open></details><details id=second name=g open></details>','text/html');
+            globalThis.groupEvents=[];
+            for(const details of groupDoc.querySelectorAll('details'))
+                details.ontoggle=e=>groupEvents.push(details.id+'|'+e.oldState+'|'+e.newState);
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        collect_slot_notifications(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "groupEvents.join(',')==='first|closed|open,second|closed|closed'&&groupDoc.getElementById('first').open&&!groupDoc.getElementById('second').open").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
     #[test]
     fn interrupted_beforetoggle_keeps_operation_and_listener_cursor() {
         super::super::tests::initialize_v8();
