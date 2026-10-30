@@ -47034,6 +47034,7 @@ fn attribute_resource_changed(
                 .borrow()
                 .is_element(node, "http://www.w3.org/1999/xhtml", "video"))
     {
+        media_element::admit_load_reset(state, node)?;
         media_resource::cancel(state, node)?;
         media_element::url_reset(state, node)?;
         media_resource::selection_changed(state, node);

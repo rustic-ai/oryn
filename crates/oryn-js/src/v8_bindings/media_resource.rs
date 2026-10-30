@@ -143,6 +143,7 @@ pub(super) fn get(state: &V8BindingState, node: NodeId, member: &str) -> (String
     }
 }
 pub(super) fn request_play(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+    admit_play_request(state, node)?;
     if state
         .native_media
         .borrow()
@@ -153,9 +154,6 @@ pub(super) fn request_play(state: &V8BindingState, node: NodeId) -> Result<(), V
     {
         return Ok(());
     }
-    if state.native_media.borrow().resources.forced.len() >= 256 {
-        return Err(error("media selection inventory exceeded"));
-    }
     cancel(state, node)?;
     let mut media = state.native_media.borrow_mut();
     media.resources.forced.insert(node);
@@ -163,12 +161,37 @@ pub(super) fn request_play(state: &V8BindingState, node: NodeId) -> Result<(), V
     media.resources.cursor = None;
     Ok(())
 }
-pub(super) fn request_load(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
-    cancel(state, node)?;
-    media_element::url_reset(state, node)?;
-    if state.native_media.borrow().resources.forced.len() >= 256 {
+pub(super) fn admit_play_request(
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    let media = state.native_media.borrow();
+    if media
+        .resources
+        .entries
+        .get(&node)
+        .is_some_and(|entry| entry.network == 2)
+    {
+        return Ok(());
+    }
+    if (media.resources.forced.len() >= 256 && !media.resources.forced.contains(&node))
+        || (media.resources.play_requests.len() >= 256
+            && !media.resources.play_requests.contains(&node))
+    {
         return Err(error("media selection inventory exceeded"));
     }
+    Ok(())
+}
+pub(super) fn request_load(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+    {
+        let media = state.native_media.borrow();
+        if media.resources.forced.len() >= 256 && !media.resources.forced.contains(&node) {
+            return Err(error("media selection inventory exceeded"));
+        }
+    }
+    media_element::admit_load_reset(state, node)?;
+    cancel(state, node)?;
+    media_element::url_reset(state, node)?;
     state
         .native_media
         .borrow_mut()
@@ -389,6 +412,43 @@ pub(super) fn poll(
             wanted.insert(node, key);
         }
     }
+    // Admit the complete selected population and token range before canceling
+    // old fetches. Selection failure must retain their host-operation custody.
+    if wanted.len() > 256 {
+        return Err(error("media resource inventory exceeded"));
+    }
+    let changed = {
+        let media = state.native_media.borrow();
+        let count = wanted
+            .iter()
+            .filter(|(node, key)| {
+                media
+                    .resources
+                    .entries
+                    .get(*node)
+                    .is_none_or(|entry| &entry.key != *key)
+            })
+            .count();
+        media
+            .resources
+            .next
+            .checked_add(u64::try_from(count).map_err(|_| error("media identity exhausted"))?)
+            .ok_or_else(|| error("media identity exhausted"))?;
+        wanted
+            .iter()
+            .filter_map(|(node, key)| {
+                media
+                    .resources
+                    .entries
+                    .get(node)
+                    .is_none_or(|entry| &entry.key != key)
+                    .then_some((*node, media.resources.play_requests.contains(node)))
+            })
+            .collect::<Vec<_>>()
+    };
+    for (node, preserve_play) in changed {
+        media_element::admit_selection_reset(state, node, preserve_play)?;
+    }
     let removed = state
         .native_media
         .borrow()
@@ -397,9 +457,23 @@ pub(super) fn poll(
         .iter()
         .filter_map(|(node, e)| (wanted.get(node) != Some(&e.key)).then_some(*node))
         .collect::<Vec<_>>();
+    let reset_nodes = removed
+        .iter()
+        .copied()
+        .filter(|node| {
+            !wanted.contains_key(node)
+                && state.dom.borrow().node_document(*node).ok().flatten()
+                    == Some(state.document_root())
+        })
+        .collect::<BTreeSet<_>>();
+    // Collected/adopted nodes still need old-owner fetch cancellation, but must
+    // never be recreated or have the new document's output reset through ensure.
+    for node in &reset_nodes {
+        media_element::admit_load_reset(state, *node)?;
+    }
     for node in removed {
         cancel(state, node)?;
-        if !wanted.contains_key(&node) {
+        if reset_nodes.contains(&node) {
             media_element::url_reset(state, node)?;
         }
     }
@@ -428,6 +502,13 @@ pub(super) fn poll(
         if state.native_media.borrow().resources.entries.len() >= 256 {
             return Err(error("media resource inventory exceeded"));
         }
+        let preserve_play = state
+            .native_media
+            .borrow()
+            .resources
+            .play_requests
+            .contains(&node);
+        media_element::url_reset_for_selection(state, node, preserve_play)?;
         let token = {
             let mut media = state.native_media.borrow_mut();
             media.resources.next = media
@@ -452,13 +533,12 @@ pub(super) fn poll(
             );
             token
         };
-        let preserve_play = state
+        state
             .native_media
             .borrow_mut()
             .resources
             .play_requests
             .remove(&node);
-        media_element::url_reset_for_selection(state, node, preserve_play)?;
         if key.preload != "none" {
             queue(state, node, token, "loadstart");
             let p = Pending {
@@ -994,6 +1074,163 @@ pub(super) fn complete(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn selection_token_failure_preserves_fetch_and_allows_retry() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<audio id=a src='https://media.test/a'></audio>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let host = Rc::new(Host::default());
+        state.set_platform_host(host.clone());
+        poll(scope, &state).unwrap();
+        let node = dom.borrow().find_by_id("a").unwrap();
+        let token = state.native_media.borrow().resources.entries[&node].token;
+        let ids = state
+            .pending_platform_operations
+            .borrow()
+            .iter()
+            .filter_map(|(id, p)| {
+                matches!(p, PendingPlatformOperation::MediaResource(p) if p.node==node)
+                    .then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        assert!(!ids.is_empty());
+        let requests = host.requests.borrow().len();
+        state.native_media.borrow_mut().resources.next = u64::MAX;
+        dom.borrow_mut()
+            .set_attribute(node, "src", "https://media.test/b")
+            .unwrap();
+        assert!(poll(scope, &state).is_err());
+        assert_eq!(
+            state.native_media.borrow().resources.entries[&node].token,
+            token
+        );
+        assert_eq!(host.requests.borrow().len(), requests);
+        assert!(host.cancelled.borrow().is_empty());
+        for id in &ids {
+            assert!(state.pending_platform_operations.borrow().contains_key(id));
+        }
+        // Repairing admission must retry the same authored selection, not need
+        // another mutation or silently consume its cursor on the failed attempt.
+        state.native_media.borrow_mut().resources.next = token;
+        poll(scope, &state).unwrap();
+        assert_eq!(
+            state.native_media.borrow().resources.entries[&node].key.url,
+            "https://media.test/b"
+        );
+        assert_eq!(
+            state.native_media.borrow().resources.entries[&node].token,
+            token + 1
+        );
+        for id in ids {
+            assert!(host.cancelled.borrow().contains(&id));
+        }
+    }
+    #[test]
+    fn full_forced_inventory_rejects_new_slot_but_reuses_existing_slot() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let html = format!(
+            "<audio id=a src='https://media.test/a'></audio>{}",
+            (0..256)
+                .map(|i| format!("<audio id=b{i}></audio>"))
+                .collect::<String>()
+        );
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(&html).into_runtime().unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let host = Rc::new(Host::default());
+        state.set_platform_host(host.clone());
+        poll(scope, &state).unwrap();
+        let node = dom.borrow().find_by_id("a").unwrap();
+        let token = state.native_media.borrow().resources.entries[&node].token;
+        for i in 0..256 {
+            state
+                .native_media
+                .borrow_mut()
+                .resources
+                .forced
+                .insert(dom.borrow().find_by_id(&format!("b{i}")).unwrap());
+        }
+        assert!(request_load(&state, node).is_err());
+        assert_eq!(
+            state.native_media.borrow().resources.entries[&node].token,
+            token
+        );
+        assert!(host.cancelled.borrow().is_empty());
+        let other = dom.borrow().find_by_id("b0").unwrap();
+        state
+            .native_media
+            .borrow_mut()
+            .resources
+            .forced
+            .remove(&other);
+        state
+            .native_media
+            .borrow_mut()
+            .resources
+            .forced
+            .insert(node);
+        assert!(request_load(&state, node).is_ok());
+        assert_eq!(state.native_media.borrow().resources.forced.len(), 256);
+        assert!(!host.cancelled.borrow().is_empty());
+    }
+    #[test]
+    fn load_admission_failure_preserves_pending_fetch_and_host_custody() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<audio id=a src='https://media.test/a'></audio>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let host = Rc::new(Host::default());
+        state.set_platform_host(host.clone());
+        poll(scope, &state).unwrap();
+        let node = dom.borrow().find_by_id("a").unwrap();
+        let token = state.native_media.borrow().resources.entries[&node].token;
+        let ids = state
+            .pending_platform_operations
+            .borrow()
+            .iter()
+            .filter_map(|(id, pending)| {
+                matches!(pending, PendingPlatformOperation::MediaResource(p) if p.node == node)
+                    .then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !ids.is_empty(),
+            "fixture must own an actual pending media fetch"
+        );
+        let requests = host.requests.borrow().len();
+        media_element::exhaust_reset_session_for_test(&state, node);
+        assert!(request_load(&state, node).is_err());
+        assert_eq!(
+            state.native_media.borrow().resources.entries[&node].token,
+            token
+        );
+        for id in ids {
+            assert!(state.pending_platform_operations.borrow().contains_key(&id));
+            assert!(!state.cancelled_platform_operations.borrow().contains(&id));
+        }
+        assert!(host.cancelled.borrow().is_empty());
+        assert_eq!(host.requests.borrow().len(), requests);
+    }
     #[derive(Default)]
     struct Host {
         requests: RefCell<Vec<PlatformHostRequest>>,

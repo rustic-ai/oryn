@@ -127,6 +127,24 @@ pub(super) fn url_reset_for_selection(
     node: NodeId,
     preserve_play: bool,
 ) -> Result<(), V8BindingError> {
+    let session = admit_reset(state, node, preserve_play)?;
+    reset_admitted_resource(state, node, preserve_play, session)
+}
+pub(super) fn admit_load_reset(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+    admit_reset(state, node, false).map(|_| ())
+}
+pub(super) fn admit_selection_reset(
+    state: &V8BindingState,
+    node: NodeId,
+    preserve_play: bool,
+) -> Result<(), V8BindingError> {
+    admit_reset(state, node, preserve_play).map(|_| ())
+}
+fn admit_reset(
+    state: &V8BindingState,
+    node: NodeId,
+    preserve_play: bool,
+) -> Result<u64, V8BindingError> {
     if state.execution_retired() {
         return Err(fail("InvalidStateError"));
     }
@@ -150,6 +168,14 @@ pub(super) fn url_reset_for_selection(
         }
         session
     };
+    Ok(session)
+}
+fn reset_admitted_resource(
+    state: &V8BindingState,
+    node: NodeId,
+    preserve_play: bool,
+    session: u64,
+) -> Result<(), V8BindingError> {
     state
         .dom
         .borrow_mut()
@@ -183,6 +209,17 @@ pub(super) fn url_reset_for_selection(
     }
     publish_state(state, node)?;
     Ok(())
+}
+#[cfg(test)]
+pub(super) fn exhaust_reset_session_for_test(state: &V8BindingState, node: NodeId) {
+    ensure(state, node).unwrap();
+    state
+        .native_media
+        .borrow_mut()
+        .playback
+        .get_mut(&node)
+        .unwrap()
+        .session = u64::MAX;
 }
 pub(super) fn url_error(
     scope: &mut v8::PinScope,
@@ -591,6 +628,15 @@ pub(super) fn call<'s>(
         }
         publish_state(state, node)?;
         return Ok(None);
+    }
+    let needs_resource = state
+        .native_media
+        .borrow()
+        .playback
+        .get(&node)
+        .is_some_and(|value| value.stream.is_none() && value.asset.is_none());
+    if needs_resource {
+        media_resource::admit_play_request(state, node)?;
     }
     let resolver = v8::PromiseResolver::new(scope).ok_or(fail("allocation"))?;
     let promise = resolver.get_promise(scope);
