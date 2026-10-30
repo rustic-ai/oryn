@@ -40517,11 +40517,60 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         .await
         .expect("load structured clone fixture");
         assert_eq!(
-            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
-                .await
-                .expect("read structured clone result"),
+            settle_fixture_output(&page).await,
             "Uint16Array|513|1027|blob|proof.txt|7|file"
         );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn indexed_db_clone_event_chain_settles_through_native_page_tasks() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://app.example.test/clone",
+            r#"<output id=result>pending</output><script>
+              globalThis.cloneEvents=[];
+              const fail=event=>{
+                cloneEvents.push('error:'+event.type);
+                document.querySelector('#result').textContent='error:'+event.type;
+              };
+              addEventListener('error',fail);
+              addEventListener('unhandledrejection',fail);
+              const open=indexedDB.open('clone',1);
+              open.onerror=fail;
+              open.onupgradeneeded=event=>{
+                cloneEvents.push('upgrade');
+                event.target.result.createObjectStore('items',{keyPath:'id'});
+              };
+              open.onsuccess=event=>{
+                cloneEvents.push('open');
+                const db=event.target.result;
+                const value={id:1,bytes:new Uint16Array([513,1027]),blob:new Blob(['blob']),file:new File(['file'],'proof.txt',{lastModified:7})};
+                const transaction=db.transaction('items','readwrite');
+                transaction.onabort=fail;
+                const put=transaction.objectStore('items').put(value);
+                put.onerror=fail;
+                put.onsuccess=()=>{
+                  cloneEvents.push('put');
+                  const get=db.transaction('items').objectStore('items').get(1);
+                  get.onerror=fail;
+                  get.onsuccess=async()=>{
+                    cloneEvents.push('get');
+                    const item=get.result;
+                    const blob=await item.blob.text();
+                    cloneEvents.push('blob');
+                    const file=await item.file.text();
+                    cloneEvents.push('file');
+                    document.querySelector('#result').textContent=[item.bytes.constructor.name,item.bytes[0],item.bytes[1],blob,item.file.name,item.file.lastModified,file].join('|');
+                  };
+                };
+              };
+            </script>"#,
+        ).await.expect("load asynchronous clone fixture");
+        assert_eq!(settle_fixture_output(&page).await,
+            "Uint16Array|513|1027|blob|proof.txt|7|file");
+        assert_eq!(page.evaluate("cloneEvents.join('|')").await.unwrap(),
+            "upgrade|open|put|get|blob|file");
     }
 
     #[cfg(feature = "v8-host")]
