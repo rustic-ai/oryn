@@ -155,6 +155,10 @@ pub(super) fn allocate<'s>(
     new_platform_object(scope, state, "OffscreenCanvas", id)
 }
 fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    if args.data().int32_value(scope) == Some(6) {
+        convert_to_blob(scope, args, rv);
+        return;
+    }
     let result = (|| -> Result<Option<v8::Local<v8::Value>>, V8BindingError> {
         let Some(source) = identify(scope, args.this().into()) else {
             throw_type_error(scope, "OffscreenCanvas receiver required");
@@ -259,34 +263,6 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                 source.owner.tainted_canvases.borrow_mut().remove(&node);
                 Ok(Some(object.into()))
             }
-            6 => {
-                let resolver = v8::PromiseResolver::new(scope)
-                    .ok_or(V8BindingError::Allocation("offscreen encoding"))?;
-                let promise = resolver.get_promise(scope);
-                match canvas_png(&source.owner, node) {
-                    Ok(Some(bytes)) => {
-                        let id = register_platform_object(
-                            &source.owner,
-                            PlatformObjectRecord::Blob(BlobRecord {
-                                bytes,
-                                media_type: "image/png".into(),
-                                file: None,
-                            }),
-                        );
-                        let blob = new_platform_object(scope, &source.owner, "Blob", id)?;
-                        resolver.resolve(scope, blob.into());
-                    }
-                    Ok(None) => {
-                        let exception = dom_exception_value(scope, "IndexSizeError")?;
-                        resolver.reject(scope, exception);
-                    }
-                    Err(_) => {
-                        let exception = dom_exception_value(scope, "SecurityError")?;
-                        resolver.reject(scope, exception);
-                    }
-                }
-                Ok(Some(promise.into()))
-            }
             _ => Ok(None),
         }
     })();
@@ -294,6 +270,59 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         Ok(Some(value)) => rv.set(value),
         Ok(None) => {}
         Err(error) => throw_binding_error(scope, &error),
+    }
+}
+// Promise-returning WebIDL operations reject even for an invalid receiver.
+// Create the promise in the calling realm before entering the conversion scope;
+// preserve author exceptions rather than relabeling every failure SecurityError.
+fn convert_to_blob(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some(resolver) = v8::PromiseResolver::new(scope) else { return; };
+    rv.set(resolver.get_promise(scope).into());
+    v8::tc_scope!(let tc, scope);
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let Some(source) = identify(tc, args.this().into()) else {
+            throw_type_error(tc, "OffscreenCanvas receiver required");
+            return Err(V8BindingError::JavaScriptException);
+        };
+        if source.owner.execution_retired() {
+            return Err(error("InvalidStateError"));
+        }
+        let settings = canvas_encoding::options(tc, args.get(0))?;
+        // Option getters can transfer or retire the source. Revalidate before
+        // reading native pixels, taint, dimensions or allocating encoded output.
+        if source.owner.execution_retired() { return Err(error("InvalidStateError")); }
+        let node = source.backing.node.get().ok_or_else(|| error("InvalidStateError"))?;
+        let (width, height) = canvas_dimensions(&source.owner, node)?;
+        if source.owner.tainted_canvases.borrow().contains(&node) {
+            return Err(error("SecurityError"));
+        }
+        if width == 0 || height == 0 {
+            return Err(error("IndexSizeError"));
+        }
+        let allocation = source.owner.capture_retained_allocation(tc,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+        let encoded = canvas_encode(&source.owner, node, settings, Some(&allocation))?
+            .ok_or_else(|| error("EncodingError"))?;
+        canvas_encoding::publish_blob(tc, &source.owner, encoded.bytes, settings.media_type, encoded.charge)
+    })();
+    match result {
+        Ok(blob) => { resolver.resolve(tc, blob.into()); }
+        Err(error) => {
+            let exception = if tc.has_caught() {
+                tc.exception()
+            } else {
+                match &error {
+                    V8BindingError::Unsupported { member, .. } => dom_exception_value(tc, member).ok(),
+                    _ => dom_exception_value(tc, "EncodingError").ok(),
+                }
+            };
+            tc.reset();
+            if let Some(exception) = exception { resolver.reject(tc, exception); }
+        }
     }
 }
 pub(super) fn install_members(
@@ -339,4 +368,91 @@ pub(super) fn install_members(
         set_object_property(scope, prototype, name, function.into())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offscreen_encoding_rejects_receiver_detachment_and_empty_dimensions() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script = v8::String::new(scope, r#"(()=>{
+            const encode=OffscreenCanvas.prototype.convertToBlob;
+            const detached=new OffscreenCanvas(1,1);
+            structuredClone(detached,{transfer:[detached]});
+            const surface=new OffscreenCanvas(1,1),ctx=surface.getContext('2d');
+            ctx.fillStyle='red';ctx.fillRect(0,0,1,1);
+            const moving=new OffscreenCanvas(1,1),order=[];
+            const promises=[encode.call({}),new OffscreenCanvas(0,1).convertToBlob(),
+                detached.convertToBlob(),surface.convertToBlob(),
+                surface.convertToBlob({type:'IMAGE/JPEG',quality:1}),
+                surface.convertToBlob({type:'image/webp'}),
+                surface.convertToBlob({type:'unsupported'}),
+                surface.convertToBlob({quality:Infinity}),
+                moving.convertToBlob({get quality(){order.push('quality');return 0.5},
+                    get type(){order.push('type');structuredClone(moving,{transfer:[moving]});return 'image/png'}})];
+            if(order.join()!=='quality,type')throw Error('dictionary conversion order');
+            for(const promise of promises) {
+                if(!(promise instanceof Promise))throw Error('encoding did not return caller Promise');
+                promise.catch(()=>{});
+            }
+            surface.width=0;
+            return promises;
+        })()"#).unwrap();
+        let values = v8::Script::compile(scope, script, None).unwrap().run(scope).unwrap();
+        let values = v8::Local::<v8::Array>::try_from(values).unwrap();
+        for (index, expected) in ["TypeError", "IndexSizeError", "InvalidStateError"].into_iter().enumerate() {
+            let value = values.get_index(scope, index as u32).unwrap();
+            let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+            assert_eq!(promise.state(), v8::PromiseState::Rejected);
+            let reason = promise.result(scope).to_object(scope).unwrap();
+            let key = v8::String::new(scope, "name").unwrap();
+            let name = reason.get(scope, key.into()).unwrap();
+            assert_eq!(name.to_rust_string_lossy(scope), expected);
+        }
+        let value = values.get_index(scope, 3).unwrap();
+        let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+        assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+        let blob = promise.result(scope).to_object(scope).unwrap();
+        let owner = binding_state_for_receiver(scope, blob).unwrap();
+        let id = stateful_id(scope, blob).unwrap();
+        let objects = owner.platform_objects.borrow();
+        let Some(PlatformObjectRecord::Blob(blob)) = objects.get(&id) else { panic!("native encoding Blob"); };
+        assert_eq!(blob.media_type, "image/png");
+        let decoded = image::load_from_memory(&blob.bytes).unwrap().to_rgba8();
+        assert_eq!(decoded.dimensions(), (1, 1));
+        assert_eq!(decoded.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        drop(objects);
+        for (index, media_type) in [(4, "image/jpeg"), (5, "image/webp"), (6, "image/png")] {
+            let value = values.get_index(scope, index).unwrap();
+            let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+            assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+            let object = promise.result(scope).to_object(scope).unwrap();
+            let owner = binding_state_for_receiver(scope, object).unwrap();
+            let id = stateful_id(scope, object).unwrap();
+            let objects = owner.platform_objects.borrow();
+            let Some(PlatformObjectRecord::Blob(blob)) = objects.get(&id) else { panic!("encoded Blob"); };
+            assert_eq!(blob.media_type, media_type);
+            let decoded = image::load_from_memory(&blob.bytes).unwrap().to_rgba8();
+            assert_eq!(decoded.dimensions(), (1, 1));
+            let pixel = decoded.get_pixel(0, 0).0;
+            assert!(pixel[0] >= 250 && pixel[1] <= 5 && pixel[2] <= 5);
+        }
+        for (index, expected) in [(7, "TypeError"), (8, "InvalidStateError")] {
+            let value = values.get_index(scope, index).unwrap();
+            let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
+            assert_eq!(promise.state(), v8::PromiseState::Rejected);
+            let reason = promise.result(scope).to_object(scope).unwrap();
+            let key = v8::String::new(scope, "name").unwrap();
+            let name = reason.get(scope, key.into()).unwrap();
+            assert_eq!(name.to_rust_string_lossy(scope), expected);
+        }
+    }
 }

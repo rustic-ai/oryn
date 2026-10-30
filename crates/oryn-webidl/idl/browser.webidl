@@ -1811,7 +1811,12 @@ interface OffscreenCanvas : EventTarget {
   attribute unsigned long long height;
   any getContext(DOMString contextId, optional any options = null);
   ImageBitmap transferToImageBitmap();
-  Promise<Blob> convertToBlob(optional any options = null);
+  Promise<Blob> convertToBlob(optional ImageEncodeOptions options = {});
+};
+
+dictionary ImageEncodeOptions {
+  DOMString type = "image/png";
+  double quality;
 };
 
 [Exposed=(Window,Worker)]

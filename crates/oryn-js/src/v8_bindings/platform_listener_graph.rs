@@ -642,6 +642,14 @@ pub(super) fn reclaim(state: &V8BindingState) {
             message_ports::release_collected(state, id);
             web_animations::release_collected(state, id);
             text_tracks::release_collected(state, id);
+            // Encoded Blob bytes outlive their deferred delivery task. Their
+            // admitted native custody ends only with the exact wrapper release.
+            if state.canvas_blob_custody.borrow().contains_key(&id) {
+                state.platform_objects.borrow_mut().remove(&id);
+                state.canvas_blob_custody.borrow_mut().remove(&id);
+                state.platform_wrappers.borrow_mut().remove(&id);
+                state.platform_edges.borrow_mut().discard_unpublished(id);
+            }
             // TimeRanges is immutable native leaf storage. Its wrapper finalizer
             // releases the snapshot itself, not just listeners and reverse edges.
             if matches!(state.platform_objects.borrow().get(&id), Some(PlatformObjectRecord::TimeRanges(_))) {

@@ -4145,24 +4145,45 @@ pub(super) fn dispatch_htmlcanvaselement_todataurl<'s>(
         } else {
             None
         };
+        let owner = wrap_node(scope, state, node)?;
         // PNG is the mandatory fallback for unrecognized serialization types.
         let type_index = if callback.is_some() { 1 } else { 0 };
-        if args.length() > type_index && !args.get(type_index).is_undefined() {
-            let _ = required_string(scope, args, type_index)?;
+        let media_type = if args.length() > type_index && !args.get(type_index).is_undefined() {
+            required_string(scope, args, type_index)?
+        } else { "image/png".into() };
+        let quality = args.get(type_index + 1);
+        let quality = if quality.is_number() { quality.number_value(scope) } else { None };
+        let settings = canvas_encoding::Settings::new(&media_type, quality);
+        let (state, node) = node_identity::argument(scope, owner.into())?
+            .ok_or(V8BindingError::Allocation("canvas serialization owner"))?;
+        if state.execution_retired() { return Err(V8BindingError::Allocation("retired canvas serialization owner")); }
+        if callback.is_some() && state.deferred_platform_tasks.borrow().len() >= 4096 {
+            return Err(V8BindingError::Allocation("deferred canvas encoding capacity"));
         }
-        let bytes = canvas_png(state, node)?;
+        let allocation = state.capture_retained_allocation(scope,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+        let encoded = canvas_encode(&state, node, settings, Some(&allocation))?;
         if let Some(callback) = callback {
-            state.deferred_platform_tasks.borrow_mut().push_back(
+            let (bytes, bytes_charge) = match encoded {
+                Some(encoded) => (Some(encoded.bytes), encoded.charge),
+                None => (None, None),
+            };
+            let mut queue = state.deferred_platform_tasks.borrow_mut();
+            reserve_queue_growth(&allocation, &mut queue,
+                &mut state.deferred_task_queue_storage.borrow_mut(), 1)?;
+            queue.push_back(
                 DeferredPlatformTask::CanvasBlob {
                     callback: v8::Global::new(scope, callback),
                     bytes,
+                    media_type: settings.media_type,
+                    _bytes_charge: bytes_charge,
                 },
             );
             Ok(None)
         } else {
-            let url = bytes.map_or_else(
+            let url = encoded.map_or_else(
                 || "data:,".into(),
-                |bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)),
+                |encoded| format!("data:{};base64,{}", settings.media_type, BASE64.encode(&encoded.bytes)),
             );
             Ok(Some(
                 v8::String::new(scope, &url)

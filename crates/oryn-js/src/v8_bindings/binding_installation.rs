@@ -301,6 +301,7 @@ pub(super) fn create_state(
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
+        canvas_blob_custody: RefCell::new(canvas_encoding::Custody::default()),
         text_encoding_releases: RefCell::new(Vec::new()),
         location_ancestor_origins: RefCell::new(Vec::new()),
         security_origin: RefCell::new(

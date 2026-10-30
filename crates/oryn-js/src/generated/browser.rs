@@ -89994,6 +89994,21 @@ pub const CANVAS_RENDERING_CONTEXT2_D_SETTINGS_DICTIONARY_MEMBERS: &[GeneratedDi
     },
 ];
 #[allow(dead_code)]
+pub const IMAGE_ENCODE_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "type",
+        type_name: "DOMString",
+        required: false,
+        default: Some("\"image/png\""),
+    },
+    GeneratedDictionaryMember {
+        name: "quality",
+        type_name: "double",
+        required: false,
+        default: None,
+    },
+];
+#[allow(dead_code)]
 pub const SHOW_POPOVER_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "source",
@@ -91804,6 +91819,11 @@ pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
         name: "CanvasRenderingContext2DSettings",
         parent: None,
         members: CANVAS_RENDERING_CONTEXT2_D_SETTINGS_DICTIONARY_MEMBERS,
+    },
+    GeneratedDictionary {
+        name: "ImageEncodeOptions",
+        parent: None,
+        members: IMAGE_ENCODE_OPTIONS_DICTIONARY_MEMBERS,
     },
     GeneratedDictionary {
         name: "ShowPopoverOptions",

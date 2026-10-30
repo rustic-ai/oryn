@@ -219,6 +219,14 @@ pub(super) fn install_members(
             .constructor_behavior(v8::ConstructorBehavior::Throw)
             .build(scope)
             .ok_or(V8BindingError::Allocation("ImageBitmap member"))?;
+        let function_name = if index == 2 {
+            name.to_owned()
+        } else {
+            format!("get {name}")
+        };
+        let function_name = v8::String::new(scope, &function_name)
+            .ok_or(V8BindingError::Allocation("ImageBitmap member name"))?;
+        function.set_name(function_name);
         if index == 2 {
             set_object_property(scope, prototype, name, function.into())?;
         } else {

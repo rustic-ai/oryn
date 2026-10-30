@@ -344,6 +344,7 @@ mod message_events;
 mod promise_rejection_events;
 mod message_ports;
 mod offscreen_canvas;
+mod canvas_encoding;
 mod opaque_ranges;
 mod owning_streams;
 mod range_geometry;
@@ -1643,6 +1644,8 @@ enum DeferredPlatformTask {
     CanvasBlob {
         callback: v8::Global<v8::Function>,
         bytes: Option<Vec<u8>>,
+        media_type: &'static str,
+        _bytes_charge: Option<Arc<dyn Send + Sync>>,
     },
     ImageError {
         target: DeferredDomTarget,
@@ -2931,6 +2934,7 @@ pub struct V8BindingState {
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
     next_platform_object_id: Cell<u64>,
     platform_objects: RefCell<BTreeMap<u64, PlatformObjectRecord>>,
+    canvas_blob_custody: RefCell<canvas_encoding::Custody>,
     text_encoding_releases: RefCell<Vec<u64>>,
     security_origin: RefCell<Option<String>>,
     location_ancestor_origins: RefCell<Vec<crate::origin::Origin>>,
@@ -4310,18 +4314,10 @@ impl V8BindingState {
                             }
                         }
                     }
-                    DeferredPlatformTask::CanvasBlob { callback, bytes } => {
+                    DeferredPlatformTask::CanvasBlob { callback, bytes, media_type, _bytes_charge } => {
                         if !self.execution_retired() {
                             let value = if let Some(bytes) = bytes {
-                                let id = register_platform_object(
-                                    self,
-                                    PlatformObjectRecord::Blob(BlobRecord {
-                                        bytes,
-                                        media_type: "image/png".into(),
-                                        file: None,
-                                    }),
-                                );
-                                new_platform_object(scope, self, "Blob", id)?.into()
+                                canvas_encoding::publish_blob(scope, self, bytes, media_type, _bytes_charge)?.into()
                             } else {
                                 v8::null(scope).into()
                             };
@@ -41298,6 +41294,12 @@ fn canvas_dimensions(state: &V8BindingState, canvas: NodeId) -> Result<(u32, u32
 }
 
 fn canvas_png(state: &V8BindingState, canvas: NodeId) -> Result<Option<Vec<u8>>, V8BindingError> {
+    Ok(canvas_encode(state, canvas, canvas_encoding::Settings::new("image/png", None), None)?
+        .map(|encoded| encoded.bytes))
+}
+
+fn canvas_encode(state: &V8BindingState, canvas: NodeId, settings: canvas_encoding::Settings,
+    allocation: Option<&BindingRetainedAllocation>) -> Result<Option<canvas_encoding::Encoded>, V8BindingError> {
     use image::ImageEncoder;
     if state.tainted_canvases.borrow().contains(&canvas) {
         return Err(V8BindingError::Unsupported {
@@ -41316,10 +41318,13 @@ fn canvas_png(state: &V8BindingState, canvas: NodeId) -> Result<Option<Vec<u8>>,
     else {
         return Ok(None);
     };
+    let _pixels_charge = allocation.map(|allocation| allocation.reserve(size))
+        .transpose().map_err(|_| V8BindingError::Allocation("canvas serialization snapshot admission"))?;
     let mut pixels = Vec::new();
     if pixels.try_reserve_exact(size).is_err() {
         return Ok(None);
     }
+    if pixels.capacity() != size { return Err(V8BindingError::Allocation("canvas serialization snapshot extent")); }
     pixels.resize(size, 0);
     if canvas_context_settings::opaque(state, canvas) {
         for pixel in pixels.chunks_exact_mut(4) { pixel[3] = 255; }
@@ -41334,14 +41339,30 @@ fn canvas_png(state: &V8BindingState, canvas: NodeId) -> Result<Option<Vec<u8>>,
             }
         }
     }
-    let mut bytes = Vec::new();
-    if image::codecs::png::PngEncoder::new(&mut bytes)
-        .write_image(&pixels, width, height, image::ExtendedColorType::Rgba8)
-        .is_err()
-    {
+    let mut bytes = canvas_encoding::Output::new(allocation);
+    let result = match settings.media_type {
+        "image/jpeg" => {
+            // JPEG has no alpha. Composite transparent pixels on black.
+            let _rgb_charge = allocation.map(|allocation| allocation.reserve(size / 4 * 3))
+                .transpose().map_err(|_| V8BindingError::Allocation("canvas JPEG scratch admission"))?;
+            let mut rgb = Vec::new();
+            if rgb.try_reserve_exact(size / 4 * 3).is_err() { return Ok(None); }
+            if rgb.capacity() != size / 4 * 3 { return Err(V8BindingError::Allocation("canvas JPEG scratch extent")); }
+            for pixel in pixels.chunks_exact(4) {
+                rgb.extend(pixel[..3].iter().map(|channel| ((u32::from(*channel) * u32::from(pixel[3]) + 127) / 255) as u8));
+            }
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, settings.quality)
+                .encode(&rgb, width, height, image::ExtendedColorType::Rgb8)
+        }
+        "image/webp" => image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+            .write_image(&pixels, width, height, image::ExtendedColorType::Rgba8),
+        _ => image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&pixels, width, height, image::ExtendedColorType::Rgba8),
+    };
+    if result.is_err() {
         return Ok(None);
     }
-    Ok(Some(bytes))
+    Ok(Some(bytes.finish()))
 }
 
 /// Clear the covered part of each pixel in the untransformed bitmap. Clearing
@@ -45641,6 +45662,9 @@ fn install_image_data_members(
             .constructor_behavior(v8::ConstructorBehavior::Throw)
             .build(scope)
             .ok_or(V8BindingError::Allocation("ImageData getter"))?;
+        let getter_name = v8::String::new(scope, &format!("get {name}"))
+            .ok_or(V8BindingError::Allocation("ImageData getter name"))?;
+        getter.set_name(getter_name);
         let undefined = v8::undefined(scope);
         let mut descriptor =
             v8::PropertyDescriptor::new_from_get_set(getter.into(), undefined.into());
@@ -55260,7 +55284,7 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             const owner=Object.getOwnPropertyDescriptor(prototype,'canvas');
             if(!owner.enumerable||!owner.configurable||owner.set!==undefined)throw Error('owner descriptor');
             if(owner.get.name!=='get canvas'||owner.get.length!==0)throw Error('owner getter metadata');
-            for(const Interface of [CanvasRenderingContext2D,OffscreenCanvasRenderingContext2D,OffscreenCanvas]) {
+            for(const Interface of [CanvasRenderingContext2D,OffscreenCanvasRenderingContext2D,OffscreenCanvas,ImageData,ImageBitmap]) {
                 for(const name of Object.getOwnPropertyNames(Interface.prototype)) {
                     if(name==='constructor')continue;
                     const descriptor=Object.getOwnPropertyDescriptor(Interface.prototype,name);
@@ -55269,6 +55293,20 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
                     if(typeof descriptor.value==='function'&&descriptor.value.name!==name)throw Error(Interface.name+' method name '+name);
                 }
             }
+            for(const [Interface,names] of [[ImageData,['width','height','data']],[ImageBitmap,['width','height']]]) {
+                for(const name of names) {
+                    const descriptor=Object.getOwnPropertyDescriptor(Interface.prototype,name);
+                    if(!descriptor.enumerable||!descriptor.configurable||descriptor.set!==undefined||descriptor.get.length!==0)
+                        throw Error(Interface.name+' accessor descriptor '+name);
+                    let error;try{descriptor.get.call({})}catch(e){error=e}
+                    if(!(error instanceof TypeError))throw Error(Interface.name+' accessor brand '+name);
+                    error=undefined;try{new descriptor.get()}catch(e){error=e}
+                    if(!(error instanceof TypeError))throw Error(Interface.name+' constructable accessor '+name);
+                }
+            }
+            if(ImageBitmap.prototype.close.length!==0)throw Error('bitmap close arity');
+            let bitmapError;try{ImageBitmap.prototype.close.call({})}catch(e){bitmapError=e}
+            if(!(bitmapError instanceof TypeError))throw Error('bitmap close brand');
             for(const name of ['fillStyle','strokeStyle','globalAlpha','font','lineWidth','fontVariantCaps']) {
                 const descriptor=Object.getOwnPropertyDescriptor(prototype,name);
                 if(descriptor.get.name!=='get '+name||descriptor.get.length!==0)throw Error('getter metadata '+name);
