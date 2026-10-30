@@ -184,6 +184,46 @@ pub(super) fn encode_unicode(value: &str) -> String {
 pub fn parse_inert_dom_string(input: &str) -> ParsedDocument {
     parse_document_dom_string(input, false)
 }
+
+/// Preserve the actual inert parser runtime for native publication handoff.
+/// The snapshot keeps the same node identities; consumers must retain original
+/// journal order and handle truncation, rather than infer changes from final
+/// attributes. Dropping the returned owner releases the parser runtime normally.
+pub fn parse_inert_dom_string_with_runtime(
+    input: &str,
+) -> (ParsedDocument, crate::SharedDomRuntime) {
+    let mut options = decoded_parse_options();
+    options.tree_builder.scripting_enabled = false;
+    let sink = OrynTreeSink::new_html_document();
+    sink.allow_declarative.set(false);
+    sink.dom_string_transport.set(true);
+    let runtime = sink.dom.clone();
+    let source = encode(input);
+    let parsed = parse_document(sink, options).one(source.as_str());
+    (parsed, runtime)
+}
+
+#[cfg(test)]
+mod inert_runtime_handoff_tests {
+    #[test]
+    fn inert_parser_handoff_preserves_original_details_presence_journal() {
+        let (parsed, runtime) = super::parse_inert_dom_string_with_runtime(
+            "<details id=original open></details>",
+        );
+        let read = runtime.borrow().next_attribute_presence_change(
+            crate::MutationCursor(0), "open",
+        );
+        assert!(!read.truncated);
+        let change = read.change.expect("original parser attribute transition");
+        assert!(!change.was_present);
+        assert!(change.is_present);
+        assert_eq!(parsed.dom.get(change.node).unwrap().attributes.get_null("id"),
+            Some(&"original".to_owned()));
+        assert_eq!(runtime.borrow().node_document(change.node).unwrap(),
+            Some(parsed.document));
+    }
+}
+
 pub fn parse_inert_dom_string_with_declarative_shadow(input: &str) -> ParsedDocument {
     parse_document_dom_string(input, true)
 }

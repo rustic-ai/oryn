@@ -1146,6 +1146,7 @@ pub(crate) use dom_input::{
 pub use dom_input::{
     ParserInput, parse_fragment_dom_string, parse_fragment_dom_string_with_context,
     parse_fragment_dom_string_with_retained_context, parse_inert_dom_string,
+    parse_inert_dom_string_with_runtime,
     parse_inert_dom_string_with_declarative_shadow,
     parse_inert_dom_string_with_declarative_shadow_unpatched,
 };
