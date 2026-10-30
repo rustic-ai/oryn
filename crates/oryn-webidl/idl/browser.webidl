@@ -1864,6 +1864,7 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  [CEReactions, Reflect] attribute boolean controls;
   [CEReactions] attribute DOMString decoding;
   [CEReactions, Reflect] attribute unsigned long hspace;
   [CEReactions, Reflect] attribute unsigned long vspace;
@@ -2305,6 +2306,7 @@ interface HTMLStyleElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
+  [CEReactions] attribute DOMString loading;
   [CEReactions, ReflectURL] attribute USVString longDesc;
   [CEReactions, Reflect] attribute DOMString align;
   [CEReactions, Reflect] attribute DOMString scrolling;
@@ -2449,6 +2451,7 @@ interface HTMLDetailsElement : HTMLElement {
 interface HTMLDialogElement : HTMLElement {
   [CEReactions] attribute boolean open;
   attribute DOMString returnValue;
+  [CEReactions] attribute DOMString closedBy;
   [CEReactions] undefined show();
   [CEReactions] undefined showModal();
   [CEReactions] undefined close(optional DOMString returnValue);

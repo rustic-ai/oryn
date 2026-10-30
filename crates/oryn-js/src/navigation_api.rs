@@ -1034,6 +1034,9 @@ pub(super) fn install(
         .constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope)
         .ok_or(V8BindingError::Allocation("Window.navigation getter"))?;
+    getter.set_name(v8::String::new(scope, &format!("get {}", member.name))
+        .ok_or(V8BindingError::Allocation("Window.navigation getter name"))?);
+
     let key = v8::String::new(scope, "navigation").unwrap();
     let undefined = v8::undefined(scope);
     let mut descriptor = v8::PropertyDescriptor::new_from_get_set(getter.into(), undefined.into());

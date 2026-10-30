@@ -570,8 +570,12 @@ fn getter(
     let data = v8::Integer::new(scope, index);
     let get = v8::Function::builder(read)
         .data(data.into())
+        .length(0)
+        .constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope)
         .ok_or_else(|| failure("getter allocation"))?;
+    get.set_name(v8::String::new(scope, &format!("get {name}"))
+        .ok_or_else(|| failure("getter name allocation"))?);
     let undefined = v8::undefined(scope);
     let mut descriptor = v8::PropertyDescriptor::new_from_get_set(get.into(), undefined.into());
     descriptor.set_enumerable(true);
@@ -2376,6 +2380,32 @@ thread_local! {static FAIL_POSITION_PUBLICATION:Cell<bool>=const{Cell::new(false
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_accessor_overrides_preserve_webidl_function_metadata() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (()=>{
+                for(const [object,name] of [[window,'navigation'],[Document.prototype,'hidden'],[Document.prototype,'visibilityState']]){
+                    const descriptor=Object.getOwnPropertyDescriptor(object,name);
+                    if(!descriptor||!descriptor.enumerable||!descriptor.configurable)return false;
+                    if(descriptor.get.name!=='get '+name||descriptor.get.length!==0)return false;
+                    if(Object.hasOwn(descriptor.get,'prototype'))return false;
+                    if(descriptor.set!==undefined)return false;
+                }
+                return document.hidden===false&&document.visibilityState==='visible'
+                    &&navigation===window.navigation;
+            })()
+        "#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
     use super::*;
     use std::sync::{Arc, Mutex};
     struct Messages;

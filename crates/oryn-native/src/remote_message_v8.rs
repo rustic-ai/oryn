@@ -374,7 +374,12 @@ mod tests {
             remote.postMessage({get data(){reads++;return b}},{targetOrigin:'*',transfer:[b,pair.port2]});
             return reads===1&&b.byteLength===0;
         })()"#).unwrap(),"true");
-        checkpoint(&mut source);
+        // Observe the task-source boundary, not the number of compound actor
+        // checkpoints: a checkpoint may legally service both distinct tasks.
+        {
+            let mut entered=source.entered();
+            entered.poll_remote_message_tasks().unwrap();
+        }
         assert_eq!(source.entered().evaluate_string("String(closedPeer)").unwrap(),"false","the port poll queues a separate close-event task");
         checkpoint(&mut source);
         assert_eq!(source.entered().evaluate_string("String(closedPeer)").unwrap(),"true");

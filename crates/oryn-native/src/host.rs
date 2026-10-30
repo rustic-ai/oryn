@@ -3429,6 +3429,7 @@ mod raw_v8 {
         mut rv: v8::ReturnValue,
     ) {
         let Some(context) = native_window_callback_context(scope, &args) else {
+            throw_type_error(scope, "Window.opener requires a Window receiver");
             return;
         };
         match native_window_opener_value(scope, context) {
@@ -3731,11 +3732,15 @@ mod raw_v8 {
                 .constructor_behavior(v8::ConstructorBehavior::Throw)
                 .build(scope)
                 .ok_or_else(|| HostError::Execution(format!("allocate Window.{name} getter")))?;
+            getter.set_name(v8::String::new(scope, &format!("get {name}"))
+                .ok_or_else(|| HostError::Execution(format!("allocate Window.{name} getter name")))?);
             let setter = v8::Function::builder_raw(set)
                 .length(1)
                 .constructor_behavior(v8::ConstructorBehavior::Throw)
                 .build(scope)
                 .ok_or_else(|| HostError::Execution(format!("allocate Window.{name} setter")))?;
+            setter.set_name(v8::String::new(scope, &format!("set {name}"))
+                .ok_or_else(|| HostError::Execution(format!("allocate Window.{name} setter name")))?);
             let mut descriptor =
                 v8::PropertyDescriptor::new_from_get_set(getter.into(), setter.into());
             descriptor.set_enumerable(true);
@@ -19729,6 +19734,37 @@ mod raw_v8 {
                     .get_security_token(scope)
                     .strict_equals(inherited.get_security_token(scope))
             );
+        }
+        #[test]
+        fn native_window_accessor_metadata_and_opener_receiver_brand() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            assert_eq!(host.evaluate_string(r#"(()=>{
+                const check=(value,message)=>{if(!value)throw Error(message)};
+                for(const name of ['name','opener']){
+                    const descriptor=Object.getOwnPropertyDescriptor(window,name);
+                    check(descriptor.enumerable&&descriptor.configurable,'descriptor flags');
+                    for(const [kind,length] of [['get',0],['set',1]]){
+                        const callback=descriptor[kind];
+                        check(callback.name===kind+' '+name&&callback.length===length,'metadata');
+                        check(!Object.hasOwn(callback,'prototype'),'not constructible');
+                    }
+                }
+                const descriptor=Object.getOwnPropertyDescriptor(window,'opener');
+                for(const receiver of [{},Window.prototype,Object.create(window)]){
+                    for(const callback of [descriptor.get,descriptor.set]){
+                        let rejected=false;
+                        try{callback.call(receiver,null)}catch(error){rejected=error instanceof TypeError}
+                        check(rejected,'wrong receiver rejected');
+                    }
+                }
+                check(descriptor.get.call(window)===null,'initialized Window accepted');
+                window.name='retained';check(window.name==='retained','native name retained');
+                return true;
+            })()"#).unwrap(), "true");
         }
 
         fn host() -> RawV8Host {

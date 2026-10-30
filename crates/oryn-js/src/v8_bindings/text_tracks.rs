@@ -2265,7 +2265,7 @@ pub(super) fn event_track<'s>(
     Ok(event
         .get_private(scope, key)
         .filter(|value| !value.is_undefined())
-        .unwrap_or_else(|| v8::null(scope).into()))
+        .ok_or_else(|| fail("TypeError"))?)
 }
 
 /// Native media relationships participate in V8's traced graph, so a listener
@@ -2660,6 +2660,34 @@ pub(super) fn owned_native_roots(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn track_event_getter_requires_native_initialization_not_prototype_inheritance() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(scope, r#"
+            (()=>{
+                const getter=Object.getOwnPropertyDescriptor(TrackEvent.prototype,'track').get;
+                const event=new TrackEvent('addtrack');
+                if(getter.call(event)!==null)return false;
+                if(new TrackEvent('addtrack',{track:undefined}).track!==null)return false;
+                const invalid=[TrackEvent.prototype,{},Object.create(event),new Event('addtrack')];
+                for(const value of invalid){
+                    try{getter.call(value);return false;}catch(error){
+                        if(!(error instanceof TypeError))return false;
+                    }
+                }
+                Object.setPrototypeOf(event,null);
+                return getter.call(event)===null;
+            })()
+        "#).is_true());
+    }
     use super::*;
     #[derive(Default)]
     struct Host {

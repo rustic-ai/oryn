@@ -326,6 +326,10 @@ fn replace_window_alias(
         throw_type_error(scope, "Window alias requires a Window receiver");
         return;
     };
+    if !global_events::is_global(scope, &state, args.this()) {
+        throw_type_error(scope, "Window alias requires a Window receiver");
+        return;
+    }
     if !global_events::check_window_access(scope, &state, args.this()) {
         return;
     }

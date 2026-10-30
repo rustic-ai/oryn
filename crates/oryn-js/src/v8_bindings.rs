@@ -18916,6 +18916,10 @@ fn generated_attribute_setter_impl<'s>(
         return;
     }
     if metadata.replaceable {
+        if interface == "Window" && !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, &format!("Window.{member} requires a Window receiver"));
+            return;
+        }
         let Some(name) = v8::String::new(scope, member) else {
             throw_type_error(scope, "replaceable attribute name allocation failed");
             return;
@@ -35697,6 +35701,7 @@ fn get_attribute_value<'s>(
     }
     if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
         || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
+        || (interface == "HTMLIFrameElement" && member == "loading")
     {
         let value = state.dom.borrow().attribute_in_null_namespace(node, member)?.unwrap_or("").to_ascii_lowercase();
         let canonical = match (member, value.as_str()) {
@@ -37673,6 +37678,13 @@ fn get_attribute_value<'s>(
             )?
         }
         ("HTMLDialogElement", "returnValue") => v8_string(scope, &record.dialog_return_value)?,
+        ("HTMLDialogElement", "closedBy") => {
+            let raw = record.attributes.get_null("closedby").map_or("", String::as_str);
+            let value = ["any", "closerequest", "none"].into_iter()
+                .find(|keyword| raw.eq_ignore_ascii_case(keyword))
+                .unwrap_or(if dom.is_modal_dialog(node) { "closerequest" } else { "none" });
+            v8_string(scope, value)?
+        }
         (
             interface,
             "type" | "name" | "label" | "content" | "httpEquiv" | "action" | "method" | "href"
@@ -37975,6 +37987,7 @@ fn set_attribute_value<'s>(
     }
     if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
         || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
+        || (interface == "HTMLIFrameElement" && member == "loading")
     {
         let original = wrap_node(scope, state, node)?;
         let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
@@ -38999,7 +39012,7 @@ fn set_attribute_value<'s>(
             | "HTMLFieldSetElement"
             | "HTMLOutputElement"
     ) || interface.starts_with("HTML")
-        && matches!(member, "target" | "formTarget" | "name" | "download")
+        && matches!(member, "target" | "formTarget" | "name" | "download" | "closedBy")
         || matches!(
             (interface, member),
             (_, "textContent")
@@ -39071,6 +39084,7 @@ fn set_attribute_value<'s>(
                     | "rel"
                     | "download"
                     | "name"
+                    | "closedBy"
             )
     {
         let string = value
@@ -39276,6 +39290,9 @@ fn set_attribute_value<'s>(
         ("Attr", "value") => dom.set_attribute_node_value(node, value)?,
         ("HTMLDialogElement", "returnValue") => {
             dom.arena_mut().get_mut(node)?.dialog_return_value = value;
+        }
+        ("HTMLDialogElement", "closedBy") => {
+            dom.set_attribute_ns(node, None, "closedby", value)?;
         }
         ("HTMLElement", "contentEditable") => {
             let normalized = value.to_ascii_lowercase();
@@ -50453,6 +50470,133 @@ fn dom_exception_code(name: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn replaceable_window_attributes_validate_receiver_before_property_replacement() {
+        check_global_event_prototype_script(r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            for(const name of ['self','frames','parent']){
+                const descriptor=Object.getOwnPropertyDescriptor(window,name);
+                for(const receiver of [{},Window.prototype,Object.create(window)]){
+                    const before=Object.getOwnPropertyDescriptor(receiver,name);
+                    let rejected=false;
+                    try{descriptor.set.call(receiver,{})}catch(error){rejected=error instanceof TypeError}
+                    check(rejected,'wrong receiver '+name);
+                    const after=Object.getOwnPropertyDescriptor(receiver,name);
+                    check(before===undefined?after===undefined:
+                        after&&after.get===before.get&&after.set===before.set&&after.value===before.value,
+                        'no replacement on wrong receiver');
+                }
+                const replacement={name};descriptor.set.call(window,replacement);
+                const replaced=Object.getOwnPropertyDescriptor(window,name);
+                check(replaced.value===replacement&&replaced.writable&&replaced.enumerable&&replaced.configurable,'valid replacement '+name);
+                Object.defineProperty(window,name,descriptor);
+            }
+            return true;
+        })()"#);
+    }
+    #[test]
+    fn dialog_closed_by_reflection_tracks_native_modal_state_and_raw_attributes() {
+        check_global_event_prototype_script(r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            const dialog=document.createElement('dialog');document.body.append(dialog);
+            check(dialog.closedBy==='none','missing closed default');
+            for(const [raw,expected] of [['AnY','any'],['ClOsErEqUeSt','closerequest'],['NoNe','none']]){
+                dialog.closedBy=raw;
+                check(dialog.closedBy===expected&&dialog.getAttribute('closedby')===raw,'known/raw');
+                dialog.showModal();check(dialog.closedBy===expected,'known modal');dialog.close();
+            }
+            for(const raw of ['', 'invalid', ' any', 'any ', 'ANY\u00a0', '\u0130']){
+                dialog.setAttribute('closedby',raw);check(dialog.closedBy==='none','invalid closed');
+                dialog.show();check(dialog.closedBy==='none','invalid modeless');dialog.close();
+                dialog.showModal();check(dialog.closedBy==='closerequest','invalid modal');
+                dialog.close();check(dialog.closedBy==='none','closed after modal');
+            }
+            dialog.removeAttribute('closedby');dialog.showModal();
+            check(dialog.closedBy==='closerequest','missing modal');dialog.close();
+            let calls=0;dialog.closedBy={toString(){calls++;return 'AnY'}};
+            check(calls===1&&dialog.getAttribute('closedby')==='AnY'&&dialog.closedBy==='any','single coercion');
+            const other=document.implementation.createHTMLDocument('');
+            const units='a\0'+String.fromCharCode(0xd800,0xdfff);
+            calls=0;dialog.closedBy={toString(){calls++;other.adoptNode(dialog);return units}};
+            check(calls===1&&dialog.ownerDocument===other&&dialog.getAttribute('closedby')===units,'adoption and exact DOMString');
+            document.body.append(dialog);
+            const descriptor=Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'closedBy');
+            check(descriptor.enumerable&&descriptor.configurable,'descriptor flags');
+            check(descriptor.get.name==='get closedBy'&&descriptor.get.length===0,'getter metadata');
+            check(descriptor.set.name==='set closedBy'&&descriptor.set.length===1,'setter metadata');
+            for(const receiver of [{},HTMLDialogElement.prototype,document.createElement('div')]){
+                for(const callback of [descriptor.get,descriptor.set]){
+                    let rejected=false;
+                    try{callback.call(receiver,'any')}catch(error){rejected=error instanceof TypeError}
+                    check(rejected,'brand');
+                }
+            }
+            dialog.remove();return true;
+        })()"#);
+    }
+
+    #[test]
+    fn dialog_closed_by_reflection_runs_custom_element_reactions_before_return() {
+        check_global_event_prototype_script(r#"(()=>{
+            const log=[];
+            class ReactiveDialog extends HTMLDialogElement {
+                static observedAttributes=['closedby'];
+                attributeChangedCallback(name,oldValue,value){log.push([name,oldValue,value])}
+            }
+            customElements.define('x-closedby-dialog',ReactiveDialog,{extends:'dialog'});
+            const dialog=new ReactiveDialog();document.body.append(dialog);
+            dialog.closedBy='AnY';
+            if(JSON.stringify(log)!==JSON.stringify([['closedby',null,'AnY']]))throw Error('reaction before return');
+            const before=log.length;let converted=0;
+            const failure=new Error('conversion sentinel');
+            try{dialog.closedBy={toString(){converted++;throw failure}};throw Error('did not throw')}
+            catch(error){if(error!==failure)throw error}
+            if(converted!==1||log.length!==before||dialog.getAttribute('closedby')!=='AnY')throw Error('abrupt conversion mutated');
+            dialog.remove();return true;
+        })()"#);
+    }
+    #[test]
+    fn image_controls_and_frame_loading_use_generated_native_reflection() {
+        initialize_v8();
+        let dom = std::rc::Rc::new(std::cell::RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (()=>{
+                const image=document.createElement('img');
+                if(image.controls!==false)return false;
+                image.controls='false';
+                if(!image.controls||image.getAttribute('controls')!=='')return false;
+                image.removeAttribute('controls');
+                if(image.controls)return false;
+                image.setAttribute('controls','anything');image.controls=0;
+                if(image.hasAttribute('controls'))return false;
+                const frame=document.createElement('iframe');
+                for(const [input,expected] of [['LAZY','lazy'],['eager','eager'],['bad','eager'],['','eager']]){
+                    frame.loading=input;
+                    if(frame.loading!==expected||frame.getAttribute('loading')!==input)return false;
+                }
+                frame.removeAttribute('loading');if(frame.loading!=='eager')return false;
+                for(const [prototype,name] of [[HTMLImageElement.prototype,'controls'],[HTMLIFrameElement.prototype,'loading']]){
+                    const descriptor=Object.getOwnPropertyDescriptor(prototype,name);
+                    if(!descriptor.enumerable||!descriptor.configurable)return false;
+                    if(descriptor.get.name!=='get '+name||descriptor.set.name!=='set '+name)return false;
+                    for(const function_ of [descriptor.get,descriptor.set]){
+                        try{function_.call({},'lazy');return false;}catch(error){
+                            if(!(error instanceof TypeError))return false;
+                        }
+                    }
+                }
+                return true;
+            })()
+        "#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
     #[test]
     fn completed_clone_queue_preserves_nonfront_retry_order_and_front_identity() {
         let a = Rc::new(1);

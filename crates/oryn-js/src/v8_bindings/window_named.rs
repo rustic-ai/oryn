@@ -262,6 +262,13 @@ pub(super) fn install(
     template.set_class_name(v8::String::new(scope, "WindowProperties").unwrap());
     let instance = template.instance_template(scope);
     instance.set_immutable_proto();
+    instance.set_with_attr(
+        v8::Symbol::get_to_string_tag(scope).into(),
+        v8::String::new(scope, "WindowProperties")
+            .ok_or(V8BindingError::Allocation("Window properties toStringTag"))?
+            .into(),
+        v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM,
+    );
     instance.set_named_property_handler(
         v8::NamedPropertyHandlerConfiguration::new()
             .getter(getter)
@@ -292,6 +299,26 @@ pub(super) fn install(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_named_properties_have_own_webidl_string_tag() {
+        super::super::tests::check_global_event_prototype_script(
+            r#"(()=>{
+                const check=(value,message)=>{if(!value)throw Error(message)};
+                const named=Object.getPrototypeOf(Window.prototype);
+                const descriptor=Object.getOwnPropertyDescriptor(named,Symbol.toStringTag);
+                check(descriptor&&descriptor.value==='WindowProperties','own tag');
+                check(!descriptor.writable&&!descriptor.enumerable&&descriptor.configurable,'tag flags');
+                check(Object.prototype.toString.call(named)==='[object WindowProperties]','named brand');
+                check(Object.getPrototypeOf(named)===EventTarget.prototype,'parent retained');
+                check(Reflect.setPrototypeOf(named,EventTarget.prototype),'same immutable parent accepted');
+                check(!Reflect.setPrototypeOf(named,{}),'different immutable parent rejected');
+                const element=document.createElement('div');element.id='named_tag_regression';
+                document.body.append(element);
+                check(window.named_tag_regression===element,'named lookup retained');element.remove();
+                return true;
+            })()"#,
+        );
+    }
     use super::*;
 
     #[test]
