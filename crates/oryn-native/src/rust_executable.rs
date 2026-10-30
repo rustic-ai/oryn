@@ -7357,7 +7357,7 @@ const __oryn_url_search_param_iterators=new WeakMap();
 // Retain a lexical alias for bootstrap consumers without replacing constructors.
 const OrynURL=globalThis.URL;
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
-Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
+// Document.cookie uses native receiver-owned bindings and typed parent authority.
 const __oryn_page_proxies=new Map();
 const __oryn_native_page_proxy=globalThis.__oryn_native_page_proxy;
 const __oryn_page_proxy=pageId=>{if(pageId==null)return null;const proxy=__oryn_native_page_proxy(pageId);__oryn_page_proxies.set(pageId,proxy);return proxy};

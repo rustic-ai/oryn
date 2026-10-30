@@ -4245,6 +4245,23 @@ mod raw_v8 {
         {
             let client = platform_context.client.clone();
             let page_id = platform_context.page_id;
+            state.set_document_cookie_access(Rc::new(move |state, value| {
+                let creator = Some(state.native_worker_creator().map_err(|error| error.to_string())?);
+                let request = match value {
+                    Some(value) => crate::context_service::ContextServiceRequest::SetDocumentCookie { page_id, creator, value },
+                    None => crate::context_service::ContextServiceRequest::GetDocumentCookie { page_id, creator },
+                };
+                match client.request(request) {
+                    Ok(crate::context_service::ContextServiceResponse::DocumentCookie { value }) => Ok(value),
+                    Ok(crate::context_service::ContextServiceResponse::DocumentCookieSet) => Ok(String::new()),
+                    Ok(_) => Err("invalid native document cookie response".into()),
+                    Err(error) => Err(error.to_string()),
+                }
+            }));
+        }
+        {
+            let client = platform_context.client.clone();
+            let page_id = platform_context.page_id;
             state.set_document_provenance_capture(Rc::new(move |state, source, url| {
                 let request = match source {
                     Some(source) => {
@@ -9180,6 +9197,21 @@ mod raw_v8 {
             &mut self,
             headers: &[(String, String)],
         ) -> Result<(), HostError> {
+            // These are admitted native Document response headers, not author
+            // resource data. All initial/frame response paths already use here.
+            let modified = headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("last-modified"))
+                .and_then(|(_, value)| httpdate::parse_http_date(value).ok())
+                .and_then(|time| match time.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(duration) => i64::try_from(duration.as_secs()).ok(),
+                    Err(error) => i64::try_from(error.duration().as_secs()).ok().map(|seconds| -seconds),
+                });
+            let owner = self.binding_states.get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("document response metadata owner unavailable".into()))?;
+            owner.dom().borrow_mut().arena_mut().get_mut(owner.document_root())
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .document_metadata.as_mut()
+                .ok_or_else(|| HostError::Execution("document response metadata unavailable".into()))?
+                .last_modified = modified;
             let Some(value) = headers
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("refresh"))

@@ -2521,11 +2521,12 @@ interface Document : Node {
   readonly attribute DOMString documentURI;
   readonly attribute DOMString compatMode;
   readonly attribute DOMString referrer;
+  readonly attribute DOMString lastModified;
   readonly attribute DOMString characterSet;
   readonly attribute DOMString charset;
   readonly attribute DOMString inputEncoding;
   readonly attribute DOMString contentType;
-  [PutForwards=href] readonly attribute Location? location;
+  [LegacyUnforgeable, PutForwards=href] readonly attribute Location? location;
   attribute DOMString cookie;
   attribute DOMString domain;
   readonly attribute any defaultView;
@@ -2535,7 +2536,9 @@ interface Document : Node {
   readonly attribute unsigned long childElementCount;
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
-  [CEReactions] readonly attribute HTMLElement? body;
+  [CEReactions] attribute HTMLElement? body;
+  attribute EventListener? onreadystatechange;
+  attribute EventListener? onvisibilitychange;
   readonly attribute Element? scrollingElement;
   readonly attribute Node? doctype;
   readonly attribute Element? activeElement;

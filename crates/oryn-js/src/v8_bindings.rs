@@ -374,6 +374,7 @@ mod url_objects;
 mod url_statics;
 mod validation;
 mod window_document;
+mod document_members;
 mod legacy_window;
 mod window_status;
 mod window_bars;
@@ -2784,6 +2785,7 @@ pub struct V8BindingState {
     location_navigation_backend: RefCell<Option<std::sync::Arc<dyn LocationNavigationBackend>>>,
     navigation_target_selector: Cell<Option<submissions::SelectNavigationTarget>>,
     document_domain_authorizer: Cell<Option<AuthorizeDomainChange>>,
+    document_cookie_access: RefCell<Option<Rc<document_members::CookieAccess>>>,
     origin_agent_cluster: Cell<Option<bool>>,
     hyperlink_audit_preparer: Cell<Option<submissions::PrepareHyperlinkAudit>>,
     selected_link_dispatcher: Cell<Option<submissions::DispatchSelectedLink>>,
@@ -36219,6 +36221,12 @@ fn get_attribute_value<'s>(
             });
         return v8_string(scope, readiness.as_str());
     }
+    if interface == "Document" && member == "cookie" {
+        return document_members::cookie(scope, state, node, None);
+    }
+    if interface == "Document" && member == "lastModified" {
+        return document_members::last_modified(scope, state, node);
+    }
     // Documents made by DOMImplementation have no browsing context. Their
     // metadata must not alias the location or Window of the creating realm.
     if interface == "Document" && node != state.document_root() {
@@ -36241,7 +36249,9 @@ fn get_attribute_value<'s>(
         }
     }
     if interface == "Document" && member == "defaultView" {
-        return Ok(scope.get_current_context().global(scope).into());
+        let context = state.realm_context.to_local(scope)
+            .ok_or(V8BindingError::Allocation("Document defaultView owner realm"))?;
+        return Ok(context.global(scope).into());
     }
     if interface == "Document" && member == "location" {
         if node != state.document_root() {
@@ -37969,6 +37979,12 @@ fn set_attribute_value<'s>(
     member: &str,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if interface == "Document" && member == "body" {
+        return document_members::set_body(scope, state, node, value);
+    }
+    if interface == "Document" && member == "cookie" {
+        return document_members::cookie(scope, state, node, Some(value)).map(|_| ());
+    }
     if interface == "HTMLTableElement" && matches!(member, "caption" | "tHead" | "tFoot") {
         let tag = match member { "caption" => "caption", "tHead" => "thead", _ => "tfoot" };
         if !value.is_null() && !value.is_undefined() {

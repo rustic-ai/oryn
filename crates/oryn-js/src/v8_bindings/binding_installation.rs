@@ -133,6 +133,7 @@ pub(super) fn create_state(
         location_navigation_backend: RefCell::new(None),
         navigation_target_selector: Cell::new(None),
         document_domain_authorizer: Cell::new(None),
+        document_cookie_access: RefCell::new(None),
         origin_agent_cluster: Cell::new(None),
         hyperlink_audit_preparer: Cell::new(None),
         selected_link_dispatcher: Cell::new(None),

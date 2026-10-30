@@ -287,6 +287,8 @@ pub struct DocumentMetadata {
     /// Bounded successful native SVG image responses; not authored resource data.
     pub css_svg_resources: Vec<oryn_common::v4::PaintImageResource>,
     pub ready_state: DocumentReadyState,
+    /// Admitted response Last-Modified in Unix seconds; absent uses current time.
+    pub last_modified: Option<i64>,
     pub url: Option<String>,
     /// Referrer of the request that created this Document, never a Window global.
     pub referrer: String,
@@ -314,6 +316,7 @@ impl Default for DocumentMetadata {
             css_svg_resources: Vec::new(),
             registered_custom_properties: Vec::new(),
             ready_state: DocumentReadyState::Complete,
+            last_modified: None,
             content_type: "application/xml".into(),
             url: None,
             referrer: String::new(),

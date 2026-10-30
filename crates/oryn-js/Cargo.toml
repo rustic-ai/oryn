@@ -16,6 +16,7 @@ oryn-common = { path = "../oryn-common" }
 base64 = "0.22"
 cssparser = "=0.37.0"
 kurbo = "=0.13.1"
+libc = "0.2"
 encoding_rs = "0.8"
 getrandom = "0.3"
 aes = { version = "0.8", features = ["zeroize"] }
