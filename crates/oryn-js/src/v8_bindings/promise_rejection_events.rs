@@ -168,6 +168,25 @@ mod tests {
     }
 
     #[test]
+    fn promise_notification_enqueue_materializes_prior_details_mutations() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body><details></details></body>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, Rc::clone(&dom), RealmId(0), 1).unwrap();
+        let node = dom.borrow().query_selector(state.document_root(), "details").unwrap().unwrap();
+        dom.borrow_mut().set_attribute(node, "open", "").unwrap();
+        assert!(state.deferred_platform_tasks.borrow().is_empty());
+        state.queue_promise_rejection_task(scope, 7, record_task).unwrap();
+        let queue = state.deferred_platform_tasks.borrow();
+        assert_eq!(queue.len(), 2);
+        assert!(matches!(queue[0], DeferredPlatformTask::ToggleEvent));
+        assert!(matches!(queue[1], DeferredPlatformTask::PromiseRejection { id: 7, .. }));
+    }
+
+    #[test]
     fn promise_rejection_tasks_observe_checkpoints_and_owner_epoch() {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());

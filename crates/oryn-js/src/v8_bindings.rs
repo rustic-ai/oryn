@@ -48910,6 +48910,11 @@ impl V8BindingState {
         if self.execution_tasks_stopped() {
             return Err(V8BindingError::Allocation("retired Promise rejection task"));
         }
+        // Mutations preceding this notification may still live in the native
+        // journal. Publish their tasks before appending ours, including when a
+        // rejection handler is attached between observer checkpoints. Otherwise
+        // lazy details projection reverses the actual task-enqueue order.
+        collect_slot_notifications(scope)?;
         let allocation = self.capture_retained_allocation(
             scope, Arc::new(std::sync::atomic::AtomicBool::new(false)),
         )?;
