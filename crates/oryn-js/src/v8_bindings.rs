@@ -374,6 +374,7 @@ mod url_objects;
 mod url_statics;
 mod validation;
 mod window_document;
+mod window_status;
 pub mod window_messages;
 pub mod worker_events;
 mod workers;
@@ -17790,6 +17791,10 @@ fn generated_attribute_getter<'s>(
         }
         return;
     }
+    if interface == "Window" && member == "status" {
+        window_status::get(scope, &state, args, return_value);
+        return;
+    }
     if interface == "Window" && member == "customElements" {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "Window.customElements requires a Window receiver");
@@ -18663,6 +18668,10 @@ fn generated_attribute_setter_impl<'s>(
         {
             throw_binding_error(scope, &error);
         }
+        return;
+    }
+    if interface == "Window" && member == "status" {
+        window_status::set(scope, &state, args);
         return;
     }
     if interface == "Window" && member == "location" {
@@ -50479,6 +50488,51 @@ fn dom_exception_code(name: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
+#[test]
+fn window_status_preserves_native_domstring_state_and_accessor_contract() {
+    check_global_event_prototype_script(r#"(()=>{
+        const check=(value,message)=>{if(!value)throw Error(message)};
+        const descriptor=Object.getOwnPropertyDescriptor(window,'status');
+        check(window.status==='','initial empty status');
+        check(descriptor.enumerable&&descriptor.configurable,'flags');
+        check(descriptor.get.name==='get status'&&descriptor.get.length===0,'getter metadata');
+        check(descriptor.set.name==='set status'&&descriptor.set.length===1,'setter metadata');
+        const units='a\0'+String.fromCharCode(0xd800,0xdfff);
+        let calls=0;window.status={toString(){calls++;return units}};
+        check(calls===1&&window.status===units,'exact string conversion');
+        window.status=null;check(window.status==='null','DOMString null');
+        for(const receiver of [{},Window.prototype,Object.create(window)]){
+            for(const fn of [descriptor.get,descriptor.set]){
+                let rejected=false;
+                try{fn.call(receiver,'wrong')}catch(error){rejected=error instanceof TypeError}
+                check(rejected,'receiver brand');
+            }
+        }
+        window.status='retained';const failure=new Error('conversion');
+        try{window.status={toString(){throw failure}};throw Error('accepted failed conversion')}
+        catch(error){check(error===failure,'original exception')}
+        check(window.status==='retained','failed conversion unchanged');
+        try{window.status=Symbol('status');throw Error('accepted symbol')}
+        catch(error){check(error instanceof TypeError,'symbol conversion rejection')}
+        check(window.status==='retained','symbol failure unchanged');
+        window.status={toString(){window.status='inner';return 'outer'}};
+        check(window.status==='outer','outer successful conversion commits after inner write');
+        try{window.status={toString(){window.status='inner retained';throw failure}}}
+        catch(error){check(error===failure,'reentrant original exception')}
+        check(window.status==='inner retained','failed outer conversion does not roll back author effects');
+        let traps=0;
+        const proxy=new Proxy(window,{get(){traps++;throw failure}});
+        for(const fn of [descriptor.get,descriptor.set]){
+            try{fn.call(proxy,'wrong');throw Error('accepted proxy')}
+            catch(error){check(error instanceof TypeError,'proxy receiver rejection')}
+        }
+        check(traps===0,'brand checks do not invoke author proxy traps');
+        Object.defineProperty(window,'status',{value:'author',configurable:true});
+        check(descriptor.get.call(window)==='inner retained','native identity independent of author property');
+        check(!Object.hasOwn(window,'defaultstatus')&&!Object.hasOwn(window,'defaultStatus'),'no unsupported legacy aliases');
+        return true;
+    })()"#);
+}
     // Native template construction must preserve an extensible immutable chain.
     #[test]
     fn immutable_window_template_can_inherit_a_prepublished_named_object() {

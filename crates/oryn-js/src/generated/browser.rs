@@ -81291,6 +81291,31 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(22806529),
+        name: "status",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(22806530),
         name: "navigator",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81315,7 +81340,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806530),
+        id: GeneratedMemberId(22806531),
         name: "clientInformation",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81340,7 +81365,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806531),
+        id: GeneratedMemberId(22806532),
         name: "getSelection",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -81365,7 +81390,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806532),
+        id: GeneratedMemberId(22806533),
         name: "customElements",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81390,7 +81415,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806533),
+        id: GeneratedMemberId(22806534),
         name: "requestAnimationFrame",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -81415,7 +81440,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806534),
+        id: GeneratedMemberId(22806535),
         name: "cancelAnimationFrame",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -81440,7 +81465,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806535),
+        id: GeneratedMemberId(22806536),
         name: "screenX",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81465,7 +81490,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806536),
+        id: GeneratedMemberId(22806537),
         name: "screenY",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81490,7 +81515,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806537),
+        id: GeneratedMemberId(22806538),
         name: "screenLeft",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81515,7 +81540,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806538),
+        id: GeneratedMemberId(22806539),
         name: "screenTop",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81540,7 +81565,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806539),
+        id: GeneratedMemberId(22806540),
         name: "innerWidth",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81565,7 +81590,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806540),
+        id: GeneratedMemberId(22806541),
         name: "innerHeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81590,7 +81615,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806541),
+        id: GeneratedMemberId(22806542),
         name: "devicePixelRatio",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81615,7 +81640,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806542),
+        id: GeneratedMemberId(22806543),
         name: "outerWidth",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81640,7 +81665,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806543),
+        id: GeneratedMemberId(22806544),
         name: "outerHeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81665,7 +81690,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806544),
+        id: GeneratedMemberId(22806545),
         name: "navigation",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81690,7 +81715,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806545),
+        id: GeneratedMemberId(22806546),
         name: "history",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81715,7 +81740,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806546),
+        id: GeneratedMemberId(22806547),
         name: "visualViewport",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81740,7 +81765,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806547),
+        id: GeneratedMemberId(22806548),
         name: "name",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81765,7 +81790,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806548),
+        id: GeneratedMemberId(22806549),
         name: "length",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81790,7 +81815,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806549),
+        id: GeneratedMemberId(22806550),
         name: "location",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81815,7 +81840,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806550),
+        id: GeneratedMemberId(22806551),
         name: "caches",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -81840,7 +81865,7 @@ pub const WINDOW_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
     GeneratedMember {
-        id: GeneratedMemberId(22806551),
+        id: GeneratedMemberId(22806552),
         name: "indexedDB",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,

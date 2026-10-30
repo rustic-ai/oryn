@@ -50,6 +50,7 @@ dictionary TextEncoderEncodeIntoResult {
 [Global=Window, Exposed=Window]
 interface Window : EventTarget {
   readonly attribute boolean isSecureContext;
+  attribute DOMString status;
   readonly attribute Navigator navigator;
   [Replaceable] readonly attribute Navigator clientInformation;
   Selection? getSelection();
