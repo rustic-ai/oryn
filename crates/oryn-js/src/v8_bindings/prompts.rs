@@ -10,12 +10,17 @@ pub(super) fn install(
         let data = v8::Integer::new(scope, kind);
         let function = v8::Function::builder(dialog)
             .data(data.into())
+            .length(0)
+            .constructor_behavior(v8::ConstructorBehavior::Throw)
             .build(scope)
             .ok_or(V8BindingError::Allocation("prompt function"))?;
         let key = v8::String::new(scope, name).ok_or(V8BindingError::Allocation("prompt name"))?;
-        context
+        function.set_name(key);
+        if context
             .global(scope)
-            .create_data_property(scope, key.into(), function.into());
+            .create_data_property(scope, key.into(), function.into()) != Some(true) {
+            return Err(V8BindingError::Allocation("prompt exposure"));
+        }
     }
     let state = context
         .get_slot::<V8BindingState>()
@@ -85,6 +90,37 @@ fn illegal_before_unload(
     _rv: v8::ReturnValue,
 ) {
     throw_type_error(scope, "Illegal constructor");
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    #[test]
+    fn modal_bindings_validate_native_receivers_before_author_conversion() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap()));
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const throwsType = fn => { try { fn(); return false; } catch(e) { return e instanceof TypeError; } };
+            let converted = 0;
+            const value = {toString() { ++converted; return 'message'; }};
+            for (const name of ['alert', 'confirm', 'prompt']) {
+                const d = Object.getOwnPropertyDescriptor(globalThis, name);
+                const f = d.value;
+                if (!d.writable || !d.enumerable || !d.configurable ||
+                    f.name !== name || f.length !== 0 ||
+                    !throwsType(() => Reflect.construct(f, [])) ||
+                    !throwsType(() => f.call({}, value)) || converted !== 0 ||
+                    !throwsType(() => f.call(globalThis, Symbol('message')))) return false;
+            }
+            return converted === 0;
+        })()"#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
 }
 
 /// One beforeunload event and its legacy return conversion keep their callback
@@ -360,13 +396,20 @@ fn simple_dialogs_allowed(scope: &mut v8::PinScope, state: &V8BindingState) -> b
 }
 
 fn dialog(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+    let Some(state) = binding_state_for_receiver(scope, args.this()) else {
+        throw_type_error(scope, "prompt requires a Window receiver");
         return;
     };
+    if state.binding_global != BindingGlobal::Window || !global_events::is_global(scope, &state, args.this()) {
+        throw_type_error(scope, "prompt requires a Window receiver");
+        return;
+    }
+    if !global_events::check_window_access(scope, &state, args.this()) { return; }
     if state.execution_retired() {
         throw_type_error(scope, "prompt owner is retired");
         return;
     }
+    let identity = (state.document_generation(), state.document_stream_epoch(), state.document_authority_epoch());
     let kind = match args.data().int32_value(scope) {
         Some(0) => PromptKind::Alert,
         Some(1) => PromptKind::Confirm,
@@ -402,6 +445,10 @@ fn dialog(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
     } else {
         String::new()
     };
+    if state.execution_retired() || identity != (state.document_generation(), state.document_stream_epoch(), state.document_authority_epoch()) {
+        throw_type_error(scope, "prompt owner changed during conversion");
+        return;
+    }
     if !simple_dialogs_allowed(scope, &state) {
         match kind {
             PromptKind::Confirm => rv.set(v8::Boolean::new(scope, false).into()),

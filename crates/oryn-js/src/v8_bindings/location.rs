@@ -134,6 +134,10 @@ pub(super) fn install(scope: &mut v8::PinScope, state: &V8BindingState) -> Resul
             .build(scope)
             .get_function(scope)
             .ok_or(V8BindingError::Allocation("Window.location setter"))?;
+        getter.set_name(v8::String::new(scope, "get location")
+            .ok_or(V8BindingError::Allocation("Window.location getter name"))?);
+        setter.set_name(v8::String::new(scope, "set location")
+            .ok_or(V8BindingError::Allocation("Window.location setter name"))?);
         let pair = v8::Array::new_with_elements(scope, &[getter.into(), setter.into()]);
         if global.set_private(scope, key, pair.into()) != Some(true) {
             return Err(V8BindingError::JavaScriptException);
@@ -518,7 +522,7 @@ mod installation_tests {
         )
         .unwrap();
         first.commit_location("https://example.test/old").unwrap();
-        assert!(eval(scope,"globalThis.oldLocation=location;globalThis.oldDocument=document;globalThis.oldDescriptor=Object.getOwnPropertyDescriptor(globalThis,'location');oldDescriptor.configurable===false&&oldDescriptor.enumerable===true").is_true());
+        assert!(eval(scope,"globalThis.oldLocation=location;globalThis.oldDocument=document;globalThis.oldDescriptor=Object.getOwnPropertyDescriptor(globalThis,'location');oldDescriptor.configurable===false&&oldDescriptor.enumerable===true&&oldDescriptor.get.name==='get location'&&oldDescriptor.get.length===0&&oldDescriptor.set.name==='set location'&&oldDescriptor.set.length===1").is_true());
         first.retire_execution();
         first.refresh_connected_wrapper_roots(scope);
         let second = install_generated_bindings(

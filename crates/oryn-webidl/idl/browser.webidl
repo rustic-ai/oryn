@@ -55,6 +55,14 @@ interface BarProp {
 [Global=Window, Exposed=Window]
 interface Window : EventTarget {
   readonly attribute boolean isSecureContext;
+  readonly attribute boolean originAgentCluster;
+  undefined alert();
+  undefined alert(DOMString message);
+  boolean confirm(optional DOMString message = "");
+  DOMString? prompt(optional DOMString message = "", optional DOMString defaultValue = "");
+  undefined captureEvents();
+  undefined releaseEvents();
+  [Replaceable, SameObject] readonly attribute External external;
   attribute DOMString status;
   [Replaceable] readonly attribute BarProp locationbar;
   [Replaceable] readonly attribute BarProp menubar;
@@ -81,7 +89,7 @@ interface Window : EventTarget {
   [SameObject] readonly attribute History history;
   [SameObject] readonly attribute VisualViewport? visualViewport;
   attribute DOMString name;
-  readonly attribute unsigned long length;
+  [Replaceable] readonly attribute unsigned long length;
   [LegacyUnforgeable, PutForwards=href] readonly attribute Location location;
 };
 
@@ -91,6 +99,12 @@ interface WorkerGlobalScope : EventTarget {
 };
 
 callback FrameRequestCallback = undefined (double time);
+
+[Exposed=Window]
+interface External {
+  undefined AddSearchProvider();
+  undefined IsSearchProviderInstalled();
+};
 
 [Exposed=Window]
 interface VisualViewport : EventTarget {

@@ -374,6 +374,7 @@ mod url_objects;
 mod url_statics;
 mod validation;
 mod window_document;
+mod legacy_window;
 mod window_status;
 mod window_bars;
 pub mod window_messages;
@@ -1228,6 +1229,7 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
+    External,
     TimeRanges(Box<media_time_ranges::Ranges>),
     QueuingStrategy {
         byte_length: bool,
@@ -13159,6 +13161,7 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Sanitizer"
+            | "External"
             | "TextMetrics"
             | "CanvasGradient"
             | "CanvasPattern"
@@ -17598,6 +17601,13 @@ fn generated_attribute_getter<'s>(
         return;
     };
     let member = metadata.name;
+    // Generated global publication can replace the early native accessor.
+    // Both descriptor paths must resolve the native Window receiver, not a
+    // numeric platform-wrapper ID or the calling realm's cluster choice.
+    if interface == "Window" && member == "originAgentCluster" {
+        origin_agent_cluster::getter(scope, args, return_value);
+        return;
+    }
     if metadata.legacy_lenient_this && lenient_receiver_is_incompatible(scope, args.this(), interface) {
         return_value.set(v8::undefined(scope).into());
         return;
@@ -17963,6 +17973,13 @@ fn generated_attribute_getter<'s>(
                 Ok(value) => return_value.set(value.into()),
                 Err(error) => throw_binding_error(scope, &error),
             }
+        }
+        return;
+    }
+    if interface == "Window" && member == "external" {
+        match legacy_window::external(scope, &state, args.this()) {
+            Ok(value) => return_value.set(value.into()),
+            Err(error) => throw_binding_error(scope, &error),
         }
         return;
     }
@@ -19368,6 +19385,15 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "XPath value is not an EventTarget");
         return;
     }
+    if interface == "Window" && matches!(member, "captureEvents" | "releaseEvents") {
+        if state.binding_global != BindingGlobal::Window || !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "legacy event capture requires a Window receiver");
+        } else {
+            global_events::check_window_access(scope, &state, args.this());
+        }
+        // HTML specifies these obsolete operations do nothing.
+        return;
+    }
     if interface == "Node" && xpath::is_namespace(scope, args.this()) {
         match xpath::namespace_operation(scope, &state, member, &args) {
             Ok(value) => return_value.set(value),
@@ -20499,6 +20525,7 @@ fn record_platform_trace(scope: &mut v8::PinScope, kind: &str, detail: serde_jso
 
 fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static str> {
     Some(match state.platform_objects.borrow().get(&id)? {
+        PlatformObjectRecord::External => "External",
         PlatformObjectRecord::Crypto { .. } => "Crypto",
         PlatformObjectRecord::SubtleCrypto => "SubtleCrypto",
         PlatformObjectRecord::FontFace => "FontFace",
@@ -28337,6 +28364,14 @@ fn call_platform_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "External" && matches!(member, "AddSearchProvider" | "IsSearchProviderInstalled") {
+        let id = stateful_id(scope, object)?;
+        if !matches!(&*platform_object(state, id)?, PlatformObjectRecord::External) {
+            return Err(V8BindingError::Message("TypeError: incompatible External receiver".into()));
+        }
+        // These two legacy search-provider operations are specified no-ops.
+        return Ok(None);
+    }
     if interface == "TimeRanges" && matches!(member, "start" | "end") {
         let id = stateful_id(scope, object)?;
         // Receiver validation precedes author numeric conversion; release native

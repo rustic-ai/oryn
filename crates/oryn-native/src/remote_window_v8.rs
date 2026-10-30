@@ -1681,6 +1681,16 @@ mod remote_window_tests {
         child_host
             .configure_native_page_opener(Some(parent.page_id()))
             .unwrap();
+        assert_eq!(child_host.evaluate_string(r#"(() => {
+            const d = Object.getOwnPropertyDescriptor(window, 'opener');
+            if (!d.enumerable || !d.configurable || d.get.name !== 'get opener' ||
+                d.get.length !== 0 || d.set.name !== 'set opener' || d.set.length !== 1) return false;
+            for (const f of [d.get, d.set]) {
+                try { Reflect.construct(f, []); return false; } catch(e) { if (!(e instanceof TypeError)) return false; }
+                try { f.call({}, null); return false; } catch(e) { if (!(e instanceof TypeError)) return false; }
+            }
+            return true;
+        })()"#).unwrap(), "true");
         child_host.execute("opener={authorMarker:1}").unwrap();
         assert_eq!(
             child_host
@@ -2146,6 +2156,10 @@ impl RawV8Host {
             .constructor_behavior(v8::ConstructorBehavior::Throw)
             .build(scope)
             .ok_or_else(|| HostError::Execution("Window.opener setter allocation".into()))?;
+        getter.set_name(v8::String::new(scope, "get opener")
+            .ok_or_else(|| HostError::Execution("Window.opener getter name allocation".into()))?);
+        setter.set_name(v8::String::new(scope, "set opener")
+            .ok_or_else(|| HostError::Execution("Window.opener setter name allocation".into()))?);
         let mut descriptor = v8::PropertyDescriptor::new_from_get_set(getter.into(), setter.into());
         descriptor.set_enumerable(true);
         descriptor.set_configurable(true);

@@ -15,15 +15,16 @@ pub(super) fn value(state: &V8BindingState) -> bool {
         .unwrap_or_else(|| state.current_location_url());
     crate::origin::Origin::from_url(&origin).is_opaque()
 }
-fn getter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let context = scope.get_current_context();
-    let Some(state) = context.get_slot::<V8BindingState>() else {
+pub(super) fn getter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(state) = binding_state_for_receiver(scope, args.this()) else {
+        throw_type_error(scope, "originAgentCluster receiver is not a Window");
         return;
     };
-    if !global_events::is_global(scope, &state, args.this()) {
+    if state.binding_global != BindingGlobal::Window || !global_events::is_global(scope, &state, args.this()) {
         throw_type_error(scope, "originAgentCluster receiver is not a Window");
         return;
     }
+    if !global_events::check_window_access(scope, &state, args.this()) { return; }
     rv.set_bool(value(&state));
 }
 pub(super) fn install(
@@ -31,9 +32,13 @@ pub(super) fn install(
     context: v8::Local<v8::Context>,
 ) -> Result<(), V8BindingError> {
     let getter = v8::Function::builder(getter)
+        .length(0)
         .constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope)
         .ok_or(V8BindingError::Allocation("originAgentCluster getter"))?;
+    let name = v8::String::new(scope, "get originAgentCluster")
+        .ok_or(V8BindingError::Allocation("originAgentCluster getter name"))?;
+    getter.set_name(name);
     let undefined = v8::undefined(scope);
     let mut descriptor = v8::PropertyDescriptor::new_from_get_set(getter.into(), undefined.into());
     descriptor.set_enumerable(true);
@@ -89,6 +94,27 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
+        // The script's lexical getter is not a public global property. Retrieve
+        // the native descriptor directly without invoking its accessor.
+        let source = v8::String::new(scope, "Object.getOwnPropertyDescriptor(globalThis,'originAgentCluster').get").unwrap();
+        let getter = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().try_cast::<v8::Function>().unwrap();
+        let first_window = context.global(scope);
+        let token = context.get_security_token(scope);
+        let other_context = v8::Context::new(scope, Default::default());
+        other_context.set_security_token(token);
+        let other_state = {
+            let other_scope = &mut v8::ContextScope::new(scope, other_context);
+            install_generated_bindings(other_scope, other_context,
+            Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap())),
+            RealmId(1), 1).unwrap()
+        };
+        other_state.set_origin_agent_cluster(false);
+        let other_window = other_context.global(scope);
+        assert!(getter.call(scope, other_window.into(), &[]).unwrap().is_false(), "borrowed getter must use receiver cluster");
+        {
+            let other_scope = &mut v8::ContextScope::new(scope, other_context);
+            assert!(getter.call(other_scope, first_window.into(), &[]).unwrap().is_true(), "calling realm cannot replace receiver cluster");
+        }
         state.set_origin_agent_cluster(false);
         assert!(!value(&state));
         state.retire_execution();
