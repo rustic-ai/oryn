@@ -1032,6 +1032,7 @@ fn serialize_inner(
         for frame in frames {
             let mut frame = frame.borrow_mut();
             frame.bitmap.take();
+            frame.source_custody.take();
             frame.planes.take();
         }
         for bitmap in bitmaps {
@@ -1611,6 +1612,7 @@ fn to_wire(
         for frame in pending.frames {
             let mut frame = frame.borrow_mut();
             frame.bitmap.take();
+            frame.source_custody.take();
             frame.planes.take();
         }
         for bitmap in pending.bitmaps {

@@ -650,6 +650,12 @@ pub(super) fn reclaim(state: &V8BindingState) {
                 state.platform_wrappers.borrow_mut().remove(&id);
                 state.platform_edges.borrow_mut().discard_unpublished(id);
             }
+            if matches!(state.platform_objects.borrow().get(&id), Some(PlatformObjectRecord::ImageBitmap(_) | PlatformObjectRecord::CanvasPattern(_))) {
+                state.platform_objects.borrow_mut().remove(&id);
+                state.image_bitmap_custody.borrow_mut().remove(&id);
+                state.platform_wrappers.borrow_mut().remove(&id);
+                state.platform_edges.borrow_mut().discard_unpublished(id);
+            }
             // TimeRanges is immutable native leaf storage. Its wrapper finalizer
             // releases the snapshot itself, not just listeners and reverse edges.
             if matches!(state.platform_objects.borrow().get(&id), Some(PlatformObjectRecord::TimeRanges(_))) {

@@ -1819,6 +1819,16 @@ dictionary ImageEncodeOptions {
   double quality;
 };
 
+dictionary ImageBitmapRenderingContextSettings {
+  boolean alpha = true;
+};
+
+[Exposed=(Window,Worker)]
+interface ImageBitmapRenderingContext {
+  readonly attribute (HTMLCanvasElement or OffscreenCanvas) canvas;
+  undefined transferFromImageBitmap(ImageBitmap? bitmap);
+};
+
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
   CanvasRenderingContext2DSettings getContextAttributes();

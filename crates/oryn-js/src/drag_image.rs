@@ -56,6 +56,14 @@ pub struct Resource {
     pub height: u32,
     pub png: Vec<u8>,
     pub svg: Option<Vec<u8>>,
+    pub native_custody: Option<NativeCustody>,
+}
+#[derive(Clone)]
+pub struct NativeCustody(pub std::sync::Arc<dyn Send + Sync>);
+impl std::fmt::Debug for NativeCustody {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("NativeCustody")
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Capture {

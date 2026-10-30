@@ -16,7 +16,7 @@ impl Custody {
         let index = self.entries.binary_search_by_key(id, |(key, _)| *key).ok()?;
         self.entries[index].1.take()
     }
-    fn reserve(&mut self, allocation: &BindingRetainedAllocation) -> Result<(), V8BindingError> {
+    pub(super) fn reserve(&mut self, allocation: &BindingRetainedAllocation) -> Result<(), V8BindingError> {
         if self.entries.len() < self.entries.capacity() { return Ok(()); }
         // Collected slots retain only numeric IDs. Compact without allocation
         // when growth is needed, keeping ordinary release logarithmic.
@@ -40,7 +40,7 @@ impl Custody {
         self.storage = Some(storage);
         Ok(())
     }
-    fn insert_reserved(&mut self, id: u64, charge: Arc<dyn Send + Sync>) {
+    pub(super) fn insert_reserved(&mut self, id: u64, charge: Arc<dyn Send + Sync>) {
         assert!(self.entries.len() < self.entries.capacity());
         assert!(self.entries.last().is_none_or(|(last, _)| *last < id));
         self.entries.push((id, Some(charge)));
@@ -64,6 +64,8 @@ impl<'a> Output<'a> {
         Self { bytes: Vec::new(), limit: crate::message_wire::MAX_BYTES, allocation, charge: None }
     }
     pub(super) fn finish(self) -> Encoded { Encoded { bytes: self.bytes, charge: self.charge } }
+    pub(super) fn len(&self) -> usize { self.bytes.len() }
+    pub(super) fn clear(&mut self) { self.bytes.clear(); }
 }
 impl std::io::Write for Output<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {

@@ -109,7 +109,7 @@ impl PageState {
         // not by authored URL aliases or a fresh network request.
         let resources = self
             .executable
-            .as_ref()
+            .as_mut()
             .ok_or(RuntimeError::EvaluationUnavailable)?
             .document_paint_images()
             .map_err(map_host_error)?;
@@ -123,6 +123,10 @@ impl PageState {
             let key = pack_node_id(resource.node);
             if !plan.snapshot.nodes.iter().any(|node| node.node_id == key) {
                 continue;
+            }
+            if let Some(custody) = resource.native_custody {
+                let executable = self.executable.as_mut().ok_or(RuntimeError::EvaluationUnavailable)?;
+                plan.push_native_custody(executable, custody)?;
             }
             let (media_type, body) = match resource.svg {
                 Some(svg) => ("image/svg+xml", svg),

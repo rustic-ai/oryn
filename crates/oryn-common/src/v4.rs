@@ -769,6 +769,22 @@ pub struct PaintFrameSnapshot {
     pub snapshot: Box<PaintSnapshot>,
 }
 
+/// Native-only resource ownership. Not visual data, not serialized authority.
+/// Snapshot equality deliberately ignores this independent lifetime token.
+#[derive(Clone, Default)]
+pub struct NativePaintCustody(Option<std::sync::Arc<dyn Send + Sync>>);
+impl NativePaintCustody {
+    pub fn new(owner: std::sync::Arc<dyn Send + Sync>) -> Self { Self(Some(owner)) }
+}
+impl std::fmt::Debug for NativePaintCustody {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("NativePaintCustody")
+    }
+}
+impl PartialEq for NativePaintCustody {
+    fn eq(&self, _other: &Self) -> bool { true }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaintSnapshot {
     /// Native current-document fragment bindings; never reconstructed from image URLs.
@@ -797,6 +813,8 @@ pub struct PaintSnapshot {
     pub fonts: BTreeMap<String, PaintFontResource>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    #[serde(skip)]
+    pub native_custody: NativePaintCustody,
 }
 
 impl CssRect {

@@ -302,6 +302,7 @@ pub(super) fn create_state(
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
         canvas_blob_custody: RefCell::new(canvas_encoding::Custody::default()),
+        image_bitmap_custody: RefCell::new(canvas_encoding::Custody::default()),
         text_encoding_releases: RefCell::new(Vec::new()),
         location_ancestor_origins: RefCell::new(Vec::new()),
         security_origin: RefCell::new(
@@ -492,6 +493,10 @@ pub(super) fn create_state(
         canvas_images: range_owner.as_ref().map_or_else(
             || Rc::new(RefCell::new(BTreeMap::new())),
             |owner| owner.canvas_images.clone(),
+        ),
+        bitmap_renderer_surfaces: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(bitmap_renderer::Surfaces::default())),
+            |owner| owner.bitmap_renderer_surfaces.clone(),
         ),
         canvas_draw_states: range_owner.as_ref().map_or_else(
             || Rc::new(RefCell::new(BTreeMap::new())),
@@ -1059,6 +1064,12 @@ pub(super) fn install_interfaces(
                 let prototype = v8::Local::<v8::Object>::try_from(interface_prototype)
                     .map_err(|_| V8BindingError::Allocation("OffscreenCanvas prototype"))?;
                 offscreen_canvas::install_members(scope, prototype)?;
+                restore_native_member_metadata(scope, prototype, interface)?;
+            }
+            if interface.name == "ImageBitmapRenderingContext" {
+                let prototype = v8::Local::<v8::Object>::try_from(interface_prototype)
+                    .map_err(|_| V8BindingError::Allocation("bitmap renderer prototype"))?;
+                bitmap_renderer::install_members(scope, prototype)?;
                 restore_native_member_metadata(scope, prototype, interface)?;
             }
             if matches!(

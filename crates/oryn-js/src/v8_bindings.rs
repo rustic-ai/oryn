@@ -345,6 +345,7 @@ mod promise_rejection_events;
 mod message_ports;
 mod offscreen_canvas;
 mod canvas_encoding;
+mod bitmap_renderer;
 mod opaque_ranges;
 mod owning_streams;
 mod range_geometry;
@@ -3109,6 +3110,8 @@ pub struct V8BindingState {
     svg_image_origin_clean: Rc<RefCell<BTreeMap<NodeId, bool>>>,
     decoded_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
     canvas_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
+    bitmap_renderer_surfaces: Rc<RefCell<bitmap_renderer::Surfaces>>,
+    image_bitmap_custody: RefCell<canvas_encoding::Custody>,
     canvas_context_settings: Rc<RefCell<BTreeMap<NodeId, canvas_context_settings::Requested>>>,
     canvas_draw_states: Rc<RefCell<BTreeMap<NodeId, CanvasDrawState>>>,
     canvas_saved_states: Rc<RefCell<BTreeMap<NodeId, Vec<CanvasDrawState>>>>,
@@ -6328,6 +6331,8 @@ impl V8BindingState {
         self.canvas_images
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
+        self.bitmap_renderer_surfaces.borrow_mut()
+            .retain(|node| dom.arena().get(*node).is_ok());
         self.canvas_draw_states
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
@@ -6894,6 +6899,7 @@ impl V8BindingState {
             self.execution_suspended(),
         );
         let animation_fingerprint = web_animations::paint_fingerprint(self);
+        let bitmap_renderer_revision = self.bitmap_renderer_surfaces.borrow().paint_revision()?;
         let bytes = serde_json::to_vec(&(
             self.dom.borrow().mutation_cursor().0,
             self.layout.borrow().viewport,
@@ -6904,6 +6910,7 @@ impl V8BindingState {
             provider_environment,
             lifecycle,
             (animation_fingerprint.0, animation_fingerprint.1.as_slice()),
+            bitmap_renderer_revision,
         ))
         .map_err(|_| V8BindingError::Allocation("native paint environment"))?;
         let mut environment = self.paint_environment.borrow_mut();
@@ -41298,16 +41305,31 @@ fn canvas_png(state: &V8BindingState, canvas: NodeId) -> Result<Option<Vec<u8>>,
         .map(|encoded| encoded.bytes))
 }
 
+fn canvas_tainted(state: &V8BindingState, canvas: NodeId) -> bool {
+    state.tainted_canvases.borrow().contains(&canvas)
+        || state.bitmap_renderer_surfaces.borrow().image(&canvas).is_some_and(|image| !image.origin_clean)
+}
+
+fn canvas_output_dimensions(state: &V8BindingState, canvas: NodeId) -> Result<(u32, u32), V8BindingError> {
+    let intrinsic = state.bitmap_renderer_surfaces.borrow().image(&canvas)
+        .map(|image| (image.width, image.height));
+    intrinsic.map(Ok).unwrap_or_else(|| canvas_dimensions(state, canvas))
+}
+
 fn canvas_encode(state: &V8BindingState, canvas: NodeId, settings: canvas_encoding::Settings,
     allocation: Option<&BindingRetainedAllocation>) -> Result<Option<canvas_encoding::Encoded>, V8BindingError> {
     use image::ImageEncoder;
-    if state.tainted_canvases.borrow().contains(&canvas) {
+    if canvas_tainted(state, canvas) {
         return Err(V8BindingError::Unsupported {
             interface: "HTMLCanvasElement".into(),
             member: "SecurityError".into(),
         });
     }
-    let (width, height) = canvas_dimensions(state, canvas)?;
+    // A bitmap-renderer canvas can hold an output bitmap whose intrinsic
+    // dimensions differ from the authored width/height attributes. Serialize
+    // the actual output bitmap rather than padding or clipping it to those
+    // attributes. For ordinary 2D canvases both dimensions agree after reset.
+    let (width, height) = canvas_output_dimensions(state, canvas)?;
     if width == 0 || height == 0 {
         return Ok(None);
     }
@@ -41329,7 +41351,9 @@ fn canvas_encode(state: &V8BindingState, canvas: NodeId, settings: canvas_encodi
     if canvas_context_settings::opaque(state, canvas) {
         for pixel in pixels.chunks_exact_mut(4) { pixel[3] = 255; }
     }
-    if let Some(bitmap) = state.canvas_images.borrow().get(&canvas) {
+    let renderers = state.bitmap_renderer_surfaces.borrow();
+    let canvases = state.canvas_images.borrow();
+    if let Some(bitmap) = renderers.image(&canvas).or_else(|| canvases.get(&canvas)) {
         let columns = width.min(bitmap.width) as usize * 4;
         for row in 0..height.min(bitmap.height) as usize {
             let source = row * bitmap.width as usize * 4;
@@ -41420,7 +41444,7 @@ fn canvas_receiver_node(
     state: &Rc<V8BindingState>,
     args: &v8::FunctionCallbackArguments,
 ) -> Result<NodeId, V8BindingError> {
-    let Some(owner) = canvas_context_owner(scope, args.this()) else {
+    let Some(owner) = canvas_2d_owner(scope, args.this()) else {
         throw_type_error(
             scope,
             "CanvasRenderingContext2D method requires a canvas context",
@@ -41438,6 +41462,17 @@ fn canvas_receiver_node(
             });
     }
     argument_node(scope, state, owner.into())
+}
+
+fn canvas_2d_owner<'s>(scope: &mut v8::PinScope<'s, '_>, receiver: v8::Local<v8::Object>)
+    -> Option<v8::Local<'s, v8::Object>>
+{
+    let owner = canvas_context_owner(scope, receiver)?;
+    let name = v8::String::new(scope, "oryn.canvas.context2d")?;
+    let key = v8::Private::for_api(scope, Some(name));
+    owner.get_private(scope, key)
+        .filter(|context| context.strict_equals(receiver.into()))?;
+    Some(owner)
 }
 
 fn install_canvas_context_members(
@@ -41726,7 +41761,7 @@ fn canvas_owner_get(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    match canvas_context_owner(scope, args.this()) {
+    match canvas_2d_owner(scope, args.this()) {
         Some(owner) => rv.set(owner.into()),
         None => throw_type_error(
             scope,
@@ -44302,6 +44337,7 @@ fn canvas_save(
 }
 fn reset_canvas_state(state: &V8BindingState, canvas: NodeId) {
     state.canvas_images.borrow_mut().remove(&canvas);
+    state.bitmap_renderer_surfaces.borrow_mut().clear_pixels(&canvas);
     state.canvas_draw_states.borrow_mut().remove(&canvas);
     state.canvas_saved_states.borrow_mut().remove(&canvas);
     state.canvas_paths.borrow_mut().remove(&canvas);
@@ -46000,7 +46036,7 @@ fn canvas_get_image_data(
                 member: "IndexSizeError".into(),
             });
         }
-        if state.tainted_canvases.borrow().contains(&canvas) {
+        if canvas_tainted(&state, canvas) {
             return Err(V8BindingError::Unsupported {
                 interface: "CanvasRenderingContext2D".into(),
                 member: "SecurityError".into(),

@@ -98,8 +98,11 @@ pub fn snapshot_native_paint_resources(
     let mut resources = Vec::new();
     let mut bytes = 0usize;
     let mut decoded_bytes = 0usize;
-    for images in [&state.decoded_images, &state.canvas_images] {
-        for (id, image) in images.borrow().iter() {
+    {
+        let decoded = state.decoded_images.borrow();
+        let canvases = state.canvas_images.borrow();
+        let renderers = state.bitmap_renderer_surfaces.borrow();
+        for (id, image) in decoded.iter().chain(canvases.iter()).chain(renderers.images()) {
             if !descendants.contains(id) {
                 continue;
             }
@@ -113,7 +116,39 @@ pub fn snapshot_native_paint_resources(
             if decoded_bytes > 64 * 1024 * 1024 {
                 return Err(V8BindingError::Allocation("drag decoded resource budget"));
             }
-            let mut png = Vec::new();
+            // Opacity is a presentation property, not a mutation of the
+            // transferred image-source pixels. Composite a fallible native
+            // presentation snapshot on black only for opaque renderers.
+            let mut opaque_pixels = Vec::new();
+            let mut opaque_charge = None;
+            let pixels = if renderers.opaque(id) {
+                decoded_bytes = decoded_bytes.checked_add(image.rgba.len())
+                    .filter(|bytes| *bytes <= 64 * 1024 * 1024)
+                    .ok_or(V8BindingError::Allocation("opaque canvas presentation budget"))?;
+                let allocation = state.retained_allocation.borrow().clone()
+                    .ok_or(V8BindingError::Allocation("opaque canvas presentation receipt unavailable"))?;
+                opaque_charge = Some(allocation.reserve(image.rgba.len())
+                    .map_err(|_| V8BindingError::Allocation("opaque canvas presentation admission"))?);
+                opaque_pixels.try_reserve_exact(image.rgba.len())
+                    .map_err(|_| V8BindingError::Allocation("opaque canvas presentation pixels"))?;
+                if opaque_pixels.capacity() != image.rgba.len() {
+                    return Err(V8BindingError::Allocation("opaque canvas presentation extent"));
+                }
+                opaque_pixels.extend_from_slice(&image.rgba);
+                for pixel in opaque_pixels.chunks_exact_mut(4) {
+                    let alpha = u32::from(pixel[3]);
+                    for channel in &mut pixel[..3] {
+                        *channel = ((u32::from(*channel) * alpha + 127) / 255) as u8;
+                    }
+                    pixel[3] = 255;
+                }
+                opaque_pixels.as_slice()
+            } else { image.rgba.as_slice() };
+            let allocation = if renderers.contains(id) {
+                Some(state.retained_allocation.borrow().clone()
+                    .ok_or(V8BindingError::Allocation("renderer PNG receipt unavailable"))?)
+            } else { None };
+            let mut png = canvas_encoding::Output::new(allocation.as_deref());
             // These PNGs transport pixels to the native renderer. Avoid an
             // adaptive compression search on every visibility checkpoint.
             image::codecs::png::PngEncoder::new_with_quality(
@@ -122,7 +157,7 @@ pub fn snapshot_native_paint_resources(
                 image::codecs::png::FilterType::NoFilter,
             )
             .write_image(
-                &image.rgba,
+                pixels,
                 image.width,
                 image.height,
                 image::ExtendedColorType::Rgba8,
@@ -134,7 +169,7 @@ pub fn snapshot_native_paint_resources(
                 png.clear();
                 image::codecs::png::PngEncoder::new(&mut png)
                     .write_image(
-                        &image.rgba,
+                        pixels,
                         image.width,
                         image.height,
                         image::ExtendedColorType::Rgba8,
@@ -164,15 +199,21 @@ pub fn snapshot_native_paint_resources(
             } else {
                 Vec::new()
             };
+            let encoded = png.finish();
             resources.push(Resource {
                 node: *id,
                 url,
                 url_aliases,
                 width: image.width,
                 height: image.height,
-                png,
+                png: encoded.bytes,
                 svg: None,
+                native_custody: encoded.charge.map(crate::drag_image::NativeCustody),
             });
+            // Dispose the private presentation pixels before their native
+            // charge. They never become the renderer's source bitmap.
+            drop(opaque_pixels);
+            drop(opaque_charge);
         }
     }
     for (id, svg) in state.decoded_svg_images.borrow().iter() {
@@ -214,6 +255,7 @@ pub fn snapshot_native_paint_resources(
             height,
             png: Vec::new(),
             svg: Some(svg.clone()),
+            native_custody: None,
         });
     }
     Ok(resources)

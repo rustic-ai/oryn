@@ -3,7 +3,8 @@
 use super::*;
 #[derive(Clone)]
 pub(super) struct Frame {
-    pub(super) bitmap: Option<DecodedImage>,
+    pub(super) bitmap: Option<Rc<DecodedImage>>,
+    pub(super) source_custody: Option<Rc<dyn std::any::Any>>,
     pub(super) planes: Option<Vec<u8>>,
     pub(super) timestamp: i64,
     pub(super) duration: Option<u64>,
@@ -65,6 +66,7 @@ impl Frame {
     pub(super) fn empty() -> Self {
         Self {
             bitmap: None,
+            source_custody: None,
             planes: None,
             timestamp: 0,
             duration: None,
@@ -75,7 +77,7 @@ impl Frame {
         }
     }
     pub(super) fn wire(self) -> crate::message_wire::VideoFrameData {
-        let bitmap = self.bitmap.unwrap_or(DecodedImage {
+        let bitmap = self.bitmap.map(Rc::unwrap_or_clone).unwrap_or(DecodedImage {
             origin_clean: true,
             width: 0,
             height: 0,
@@ -96,12 +98,13 @@ impl Frame {
     }
     pub(super) fn from_wire(value: crate::message_wire::VideoFrameData) -> Self {
         Self {
-            bitmap: Some(DecodedImage {
+            bitmap: Some(Rc::new(DecodedImage {
                 origin_clean: true,
                 width: value.width,
                 height: value.height,
                 rgba: value.rgba,
-            }),
+            })),
+            source_custody: None,
             planes: value.planes,
             timestamp: value.timestamp,
             duration: value.duration,
@@ -332,7 +335,8 @@ pub(super) fn construct(
             .collect();
         let bitmap = i420_bitmap(width, height, &planes)?;
         Frame {
-            bitmap: Some(bitmap),
+            bitmap: Some(Rc::new(bitmap)),
+            source_custody: None,
             planes: Some(planes),
             timestamp: timestamp.ok_or_else(|| error("TypeError"))?,
             duration: None,
@@ -354,10 +358,12 @@ pub(super) fn construct(
             return Err(error("SecurityError"));
         }
         let timestamp = timestamp.ok_or_else(|| error("TypeError"))?;
+        let (bitmap, custody) = bitmap.frame_parts();
         Frame {
             visible: [0, 0, bitmap.width, bitmap.height],
             display: [bitmap.width, bitmap.height],
             bitmap: Some(bitmap),
+            source_custody: Some(custody),
             planes: None,
             timestamp,
             duration: None,
@@ -387,10 +393,28 @@ pub(super) fn construct(
     if let (Some(width), Some(height)) = (display[0], display[1]) {
         frame.display = [width, height];
     }
-    if discard_alpha && let Some(bitmap) = &mut frame.bitmap {
-        for pixel in bitmap.rgba.as_chunks_mut::<4>().0 {
+    if discard_alpha && let Some(bitmap) = &frame.bitmap {
+        let allocation = state.capture_retained_allocation(scope,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+        // Alpha conversion needs a separately admitted mutable output, not
+        // Rc::make_mut's hidden copy of another frame's immutable pixels.
+        let size = bitmap.rgba.len();
+        let pixels = allocation.reserve(size)
+            .map_err(|_| V8BindingError::Allocation("VideoFrame alpha output admission"))?;
+        let mut rgba = Vec::new();
+        rgba.try_reserve_exact(size)
+            .map_err(|_| V8BindingError::Allocation("VideoFrame alpha output allocation"))?;
+        if rgba.capacity() != size { return Err(V8BindingError::Allocation("VideoFrame alpha output extent")); }
+        rgba.extend_from_slice(&bitmap.rgba);
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
+        let image = DecodedImage { width: bitmap.width, height: bitmap.height,
+            origin_clean: bitmap.origin_clean, rgba };
+        let snapshot = image_bitmap::Snapshot::owned(&allocation, image, pixels)?;
+        let (bitmap, custody) = snapshot.frame_parts();
+        frame.bitmap = Some(bitmap);
+        frame.source_custody = Some(custody);
     }
     if !valid(&frame) {
         return Err(error("TypeError"));
@@ -412,6 +436,7 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         if code == 12 {
             let mut frame = backing.borrow_mut();
             frame.bitmap.take();
+            frame.source_custody.take();
             frame.planes.take();
             return Ok(None);
         }

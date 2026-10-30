@@ -3570,8 +3570,25 @@ impl RawV8Host {
         }
         Ok(Some(geometry))
     }
+    pub(crate) fn admit_paint_storage(
+        &mut self, realm: RealmId, generation: u64, epoch: u64, bytes: usize,
+    ) -> Result<oryn_js::drag_image::NativeCustody, ScriptError> {
+        let state = self.binding_states.get(&realm).cloned().ok_or_else(ScriptError::retired)?;
+        if state.execution_retired() || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch || !self.realm_execution_live(realm)
+        { return Err(ScriptError::retired()); }
+        let context = self.contexts.get(&realm).cloned().ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let allocation = state.capture_retained_allocation(scope,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+            .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        allocation.reserve(bytes).map(oryn_js::drag_image::NativeCustody)
+            .map_err(ScriptError::javascript)
+    }
     pub(crate) fn capture_paint_images(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -3586,7 +3603,15 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
-        oryn_js::v8_bindings::snapshot_native_paint_resources(state, state.document_root())
+        let state = state.clone();
+        if !self.realm_execution_live(realm) { return Err(ScriptError::retired()); }
+        let context = self.contexts.get(&realm).cloned().ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let _allocation_scope = state.enter_retained_allocation(scope)
+            .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        oryn_js::v8_bindings::snapshot_native_paint_resources(&state, state.document_root())
             .map_err(|error| ScriptError::javascript(error.to_string()))
     }
     pub(crate) fn take_drag_feedback(&self) -> Vec<oryn_js::drag_image::Feedback> {

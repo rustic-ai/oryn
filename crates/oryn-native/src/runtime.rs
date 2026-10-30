@@ -15142,6 +15142,7 @@ impl PaintImageTarget {
 #[cfg(feature = "v8-host")]
 struct PaintSnapshotPlan {
     snapshot: PaintSnapshot,
+    native_image_custody: Option<Arc<std::sync::Mutex<NativeImageCustody>>>,
     // Identities painted inside SVG resources, or omitted with a nonpainting SVG.
     // Native top-layer descendants that escape SVG remain ordinary page nodes.
     omitted_svg_nodes: BTreeSet<u64>,
@@ -15157,6 +15158,66 @@ struct PaintSnapshotPlan {
         oryn_js::worker_wire::Creator,
     )>,
     csp: crate::csp::CspPolicySet,
+}
+
+#[cfg(feature = "v8-host")]
+struct NativeImageCustody {
+    values: Vec<oryn_js::drag_image::NativeCustody>,
+    storage: Option<oryn_js::drag_image::NativeCustody>,
+    _metadata: oryn_js::drag_image::NativeCustody,
+}
+
+#[cfg(feature = "v8-host")]
+impl PaintSnapshotPlan {
+    fn push_native_custody(&mut self, executable: &mut crate::executable::RustExecutableDocument,
+        custody: oryn_js::drag_image::NativeCustody) -> Result<(), RuntimeError>
+    {
+        let owner = if let Some(owner) = &self.native_image_custody {
+            owner.clone()
+        } else {
+            let metadata = executable.admit_paint_storage(std::mem::size_of::<std::sync::Mutex<NativeImageCustody>>())
+                .map_err(map_host_error)?;
+            Arc::new(std::sync::Mutex::new(NativeImageCustody {
+                values: Vec::new(), storage: None, _metadata: metadata,
+            }))
+        };
+        let (length, current_capacity) = {
+            let owned = owner.lock().map_err(|_| RuntimeError::PaintUnavailable("native paint custody poisoned".into()))?;
+            (owned.values.len(), owned.values.capacity())
+        };
+        let replacement = if length == current_capacity {
+            let capacity = length.checked_add(1)
+                .and_then(usize::checked_next_power_of_two)
+                .ok_or_else(|| RuntimeError::PaintUnavailable("native paint custody count".into()))?;
+            let bytes = std::alloc::Layout::array::<oryn_js::drag_image::NativeCustody>(capacity)
+                .map_err(|_| RuntimeError::PaintUnavailable("native paint custody layout".into()))?.size();
+            let storage = executable.admit_paint_storage(bytes).map_err(map_host_error)?;
+            let mut replacement = Vec::new();
+            replacement.try_reserve_exact(capacity)
+                .map_err(|_| RuntimeError::PaintUnavailable("native paint custody allocation".into()))?;
+            if replacement.capacity() != capacity {
+                return Err(RuntimeError::PaintUnavailable("native paint custody extent".into()));
+            }
+            Some((replacement, storage))
+        } else { None };
+        {
+            let mut owned = owner.lock().map_err(|_| RuntimeError::PaintUnavailable("native paint custody poisoned".into()))?;
+            if owned.values.len() != length || owned.values.capacity() != current_capacity {
+                return Err(RuntimeError::PaintUnavailable("native paint custody changed during admission".into()));
+            }
+            if let Some((mut replacement, storage)) = replacement {
+                replacement.append(&mut owned.values);
+                owned.values = replacement;
+                owned.storage = Some(storage);
+            }
+            owned.values.push(custody);
+        }
+        // Every clone/returned snapshot now owns the same admitted custody,
+        // independently of the plan or presentation-cache lifetime.
+        self.snapshot.native_custody = oryn_common::v4::NativePaintCustody::new(owner.clone());
+        self.native_image_custody = Some(owner);
+        Ok(())
+    }
 }
 
 #[cfg(feature = "v8-host")]
@@ -22061,6 +22122,9 @@ impl PageState {
             if !referenced {
                 continue;
             }
+            if let Some(custody) = resource.native_custody {
+                plan.push_native_custody(executable, custody)?;
+            }
             let (media_type, body) = match resource.svg {
                 Some(svg) => ("image/svg+xml", svg),
                 None => ("image/png", resource.png),
@@ -22875,6 +22939,7 @@ impl PageState {
             }
         }
         let snapshot = PaintSnapshot {
+            native_custody: Default::default(),
             local_effects,
             visual_viewport: None,
             frames: Vec::new(),
@@ -22906,6 +22971,7 @@ impl PageState {
             .collect();
         Ok(PaintSnapshotPlan {
             snapshot,
+            native_image_custody: None,
             omitted_svg_nodes,
             pending: pending_images.into_values().collect(),
             broker: self.broker.clone(),

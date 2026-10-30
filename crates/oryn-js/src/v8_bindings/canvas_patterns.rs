@@ -4,7 +4,7 @@ use oryn_common::canvas_pattern::Repeat;
 
 #[derive(Debug, Clone)]
 pub(super) struct Pattern {
-    pub(super) image: DecodedImage,
+    pub(super) image: image_bitmap::Snapshot,
     pub(super) repeat: Repeat,
     pub(super) transform: [f64; 6],
 }

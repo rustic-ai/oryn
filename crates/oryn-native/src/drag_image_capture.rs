@@ -367,6 +367,7 @@ pub(super) fn capture_filtered(
         }
     }
     let mut snapshot = PaintSnapshot {
+        native_custody: Default::default(),
         local_effects,
         visual_viewport: None,
         frames: Vec::new(),
@@ -1255,6 +1256,7 @@ mod tests {
         })
         .unwrap();
         let snapshot = PaintSnapshot {
+            native_custody: Default::default(),
             contract_version: CONTRACT_VERSION,
             page: PageInfo {
                 page_id: PageId(0),

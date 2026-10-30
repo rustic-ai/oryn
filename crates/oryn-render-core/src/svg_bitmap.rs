@@ -17,6 +17,7 @@ pub fn decode_svg_bitmap(
     // against an embedding document's captured resource inventory.
     let environment = SvgEnvironment::default();
     let snapshot = PaintSnapshot {
+        native_custody: Default::default(),
         local_effects: Default::default(),
         visual_viewport: None,
         frames: Vec::new(),

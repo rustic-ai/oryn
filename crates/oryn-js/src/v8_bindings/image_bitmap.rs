@@ -2,6 +2,66 @@
 //! independently of the source canvas, realm wrappers, and author properties.
 use super::*;
 pub(super) type Backing = Rc<RefCell<Option<DecodedImage>>>;
+struct SnapshotBacking {
+    image: Rc<DecodedImage>,
+    _pixels: Arc<dyn Send + Sync>,
+    _metadata: Arc<dyn Send + Sync>,
+}
+/// Immutable source copies keep pixels and their independent admission together.
+/// Cloning a retained pattern shares the immutable snapshot, not its pixel Vec.
+#[derive(Clone)]
+pub(super) struct Snapshot(Rc<SnapshotBacking>);
+impl std::ops::Deref for Snapshot {
+    type Target = DecodedImage;
+    fn deref(&self) -> &DecodedImage { &self.0.image }
+}
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0.image, formatter)
+    }
+}
+impl Snapshot {
+    pub(super) fn frame_parts(self) -> (Rc<DecodedImage>, Rc<dyn std::any::Any>) {
+        (self.0.image.clone(), self.0)
+    }
+    pub(super) fn owned(allocation: &BindingRetainedAllocation, image: DecodedImage,
+        pixels: Arc<dyn Send + Sync>) -> Result<Self, V8BindingError>
+    {
+        let metadata = match allocation.reserve(std::mem::size_of::<SnapshotBacking>()
+            + std::mem::size_of::<DecodedImage>()) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                drop(image);
+                drop(pixels);
+                return Err(V8BindingError::Allocation("image source snapshot metadata"));
+            }
+        };
+        Ok(Self(Rc::new(SnapshotBacking { image: Rc::new(image), _pixels: pixels, _metadata: metadata })))
+    }
+    pub(super) fn copy(allocation: &BindingRetainedAllocation, image: &DecodedImage, origin_clean: bool)
+        -> Result<Self, V8BindingError>
+    {
+        if !valid(image) { return Err(error("InvalidStateError")); }
+        let pixels = allocation.reserve(image.rgba.len())
+            .map_err(|_| V8BindingError::Allocation("image source snapshot pixels"))?;
+        let mut rgba = Vec::new();
+        rgba.try_reserve_exact(image.rgba.len())
+            .map_err(|_| V8BindingError::Allocation("image source snapshot allocation"))?;
+        if rgba.capacity() != image.rgba.len() {
+            return Err(V8BindingError::Allocation("image source snapshot extent"));
+        }
+        rgba.extend_from_slice(&image.rgba);
+        Self::owned(allocation, DecodedImage { width: image.width, height: image.height,
+            origin_clean: image.origin_clean && origin_clean, rgba }, pixels)
+    }
+    fn existing(allocation: &BindingRetainedAllocation, image: DecodedImage)
+        -> Result<Self, V8BindingError>
+    {
+        let pixels = allocation.reserve(image.rgba.capacity())
+            .map_err(|_| V8BindingError::Allocation("decoded image source custody"))?;
+        Self::owned(allocation, image, pixels)
+    }
+}
 fn error(name: &str) -> V8BindingError {
     V8BindingError::Unsupported {
         interface: "ImageBitmap".into(),
@@ -11,6 +71,14 @@ fn error(name: &str) -> V8BindingError {
 pub(super) fn identify(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<Backing> {
     let object = v8::Local::<v8::Object>::try_from(value).ok()?;
     let state = binding_state_for_receiver(scope, object)?;
+    // Interface conversion is a non-coercing brand probe. DOM wrappers carry
+    // BigInt identities; asking stateful_id to convert those to Number leaves
+    // a pending exception rather than simply rejecting the wrong interface.
+    if object.internal_field_count() == 0
+        || !object.get_internal_field(scope, 0)?.is_number()
+    {
+        return None;
+    }
     let id = stateful_id(scope, object).ok()?;
     if !state
         .platform_wrappers
@@ -30,6 +98,18 @@ pub(super) fn identify(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) ->
 pub(super) fn valid(bitmap: &DecodedImage) -> bool {
     image_data_size(bitmap.width, bitmap.height).ok() == Some(bitmap.rgba.len())
 }
+/// Release only the exact wrapper's final-output pixel charge after the caller
+/// has consumed or closed its backing. Wrong-interface probes never coerce IDs.
+pub(super) fn release_consumed(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) {
+    let Some(backing) = identify(scope, value) else { return; };
+    if backing.borrow().is_some() { return; }
+    let Ok(object) = v8::Local::<v8::Object>::try_from(value) else { return; };
+    if let Some(state) = binding_state_for_receiver(scope, object)
+        && let Ok(id) = stateful_id(scope, object)
+    {
+        state.image_bitmap_custody.borrow_mut().remove(&id);
+    }
+}
 pub(super) fn allocate<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -38,18 +118,60 @@ pub(super) fn allocate<'s>(
     if !valid(&bitmap) {
         return Err(error("InvalidStateError"));
     }
+    let allocation = state.capture_retained_allocation(scope,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+    let charge = allocation.reserve(bitmap.rgba.capacity())
+        .map_err(|_| V8BindingError::Allocation("ImageBitmap pixel custody admission"))?;
+    allocate_admitted(scope, state, bitmap, &allocation, charge)
+}
+/// Transfer a private immutable source snapshot into a native bitmap without
+/// cloning pixels or releasing their admission before wrapper publication.
+pub(super) fn allocate_snapshot<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    snapshot: Snapshot,
+    allocation: &BindingRetainedAllocation,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let backing = Rc::try_unwrap(snapshot.0)
+        .map_err(|_| V8BindingError::Allocation("shared image snapshot handoff"))?;
+    let image = Rc::try_unwrap(backing.image)
+        .map_err(|_| V8BindingError::Allocation("shared image snapshot pixels"))?;
+    allocate_admitted(scope, state, image, allocation, backing._pixels)
+}
+/// Publish already-admitted output without releasing its charge between the
+/// source transformation and the final native wrapper's custody.
+fn allocate_admitted<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    bitmap: DecodedImage,
+    allocation: &BindingRetainedAllocation,
+    charge: Arc<dyn Send + Sync>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    if !valid(&bitmap) {
+        return Err(error("InvalidStateError"));
+    }
+    state.image_bitmap_custody.borrow_mut().reserve(allocation)?;
     let id = register_platform_object(
         state,
         PlatformObjectRecord::ImageBitmap(Rc::new(RefCell::new(Some(bitmap)))),
     );
-    new_platform_object(scope, state, "ImageBitmap", id)
+    state.image_bitmap_custody.borrow_mut().insert_reserved(id, charge);
+    match new_platform_object(scope, state, "ImageBitmap", id) {
+        Ok(object) => Ok(object),
+        Err(error) => {
+            state.platform_objects.borrow_mut().remove(&id);
+            state.image_bitmap_custody.borrow_mut().remove(&id);
+            state.platform_edges.borrow_mut().discard_unpublished(id);
+            Err(error)
+        }
+    }
 }
 pub(super) fn source(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     value: v8::Local<v8::Value>,
     extended: bool,
-) -> Result<Option<DecodedImage>, V8BindingError> {
+) -> Result<Option<Snapshot>, V8BindingError> {
     source_with_orientation(scope, state, value, extended, true)
 }
 fn source_with_orientation(
@@ -58,19 +180,38 @@ fn source_with_orientation(
     value: v8::Local<v8::Value>,
     extended: bool,
     orient: bool,
-) -> Result<Option<DecodedImage>, V8BindingError> {
+) -> Result<Option<Snapshot>, V8BindingError> {
+    let allocation = state.capture_retained_allocation(scope,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
     if let Some(frame) = video_frame::identify(scope, value) {
-        return video_frame::image(&frame.borrow()).map(Some);
+        let frame = frame.borrow();
+        if !video_frame::valid(&frame) {
+            return Err(error("InvalidStateError"));
+        }
+        let size = image_data_size(frame.display[0], frame.display[1])?;
+        let pixels = allocation.reserve(size)
+            .map_err(|_| V8BindingError::Allocation("VideoFrame source output admission"))?;
+        // Rotation allocates a second full-size buffer while the unrotated
+        // raster remains live. Flipping alone is in-place and needs no copy.
+        let scratch = if matches!(frame.rotation, 90 | 180 | 270) {
+            Some(allocation.reserve(size)
+                .map_err(|_| V8BindingError::Allocation("VideoFrame rotation scratch admission"))?)
+        } else { None };
+        let image = video_frame::image(&frame)?;
+        if image.rgba.capacity() != size {
+            return Err(V8BindingError::Allocation("VideoFrame source output extent"));
+        }
+        // image() has disposed of its intermediate raster before returning.
+        drop(scratch);
+        return Snapshot::owned(&allocation, image, pixels).map(Some);
     }
     if let Some(source) = offscreen_canvas::identify(scope, value) {
-        return source.snapshot().map(Some);
+        return source.charged_snapshot(&allocation).map(Some);
     }
     if let Some(backing) = identify(scope, value) {
-        return backing
-            .borrow()
-            .clone()
-            .map(Some)
-            .ok_or_else(|| error("InvalidStateError"));
+        let backing = backing.borrow();
+        let image = backing.as_ref().ok_or_else(|| error("InvalidStateError"))?;
+        return Snapshot::copy(&allocation, image, true).map(Some);
     }
     if extended && let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
         if let Some((width, height, pixels)) = native_image_data(scope, object) {
@@ -80,7 +221,15 @@ fn source_with_orientation(
             {
                 return Err(error("InvalidStateError"));
             }
-            let mut rgba = vec![0; pixels.byte_length()];
+            let size = image_data_size(width, height)?;
+            if size != pixels.byte_length() { return Err(error("InvalidStateError")); }
+            let pixel_charge = allocation.reserve(size)
+                .map_err(|_| V8BindingError::Allocation("ImageData source snapshot admission"))?;
+            let mut rgba = Vec::new();
+            rgba.try_reserve_exact(size)
+                .map_err(|_| V8BindingError::Allocation("ImageData source snapshot allocation"))?;
+            if rgba.capacity() != size { return Err(V8BindingError::Allocation("ImageData source snapshot extent")); }
+            rgba.resize(size, 0);
             pixels.copy_contents(&mut rgba);
             let bitmap = DecodedImage {
                 origin_clean: true,
@@ -89,7 +238,7 @@ fn source_with_orientation(
                 rgba,
             };
             return if valid(&bitmap) {
-                Ok(Some(bitmap))
+                Snapshot::owned(&allocation, bitmap, pixel_charge).map(Some)
             } else {
                 Err(error("InvalidStateError"))
             };
@@ -115,20 +264,42 @@ fn source_with_orientation(
                 let orientation = decoder
                     .orientation()
                     .map_err(|_| error("InvalidStateError"))?;
+                let (width, height) = decoder.dimensions();
+                let output_size = image_data_size(width, height)?;
+                let decoded_size = usize::try_from(decoder.total_bytes())
+                    .ok().filter(|size| *size <= 32 * 1024 * 1024)
+                    .ok_or(V8BindingError::Allocation("encoded image decoded extent"))?;
+                let decoded_charge = allocation.reserve(decoded_size)
+                    .map_err(|_| V8BindingError::Allocation("encoded image decoded pixels admission"))?;
                 let mut decoded = image::DynamicImage::from_decoder(decoder)
                     .map_err(|_| error("InvalidStateError"))?;
                 if orient {
+                    use image::metadata::Orientation;
+                    let scratch = if matches!(orientation, Orientation::Rotate90
+                        | Orientation::Rotate270 | Orientation::Rotate90FlipH
+                        | Orientation::Rotate270FlipH) {
+                        Some(allocation.reserve(decoded_size)
+                            .map_err(|_| V8BindingError::Allocation("encoded image orientation scratch admission"))?)
+                    } else { None };
                     decoded.apply_orientation(orientation);
+                    drop(scratch);
                 }
+                let output_charge = allocation.reserve(output_size)
+                    .map_err(|_| V8BindingError::Allocation("encoded image RGBA output admission"))?;
                 let rgba = decoded.to_rgba8();
+                drop(decoded);
+                drop(decoded_charge);
                 let bitmap = DecodedImage {
                     origin_clean: true,
                     width: rgba.width(),
                     height: rgba.height(),
                     rgba: rgba.into_raw(),
                 };
+                if bitmap.rgba.capacity() != output_size {
+                    return Err(V8BindingError::Allocation("encoded image RGBA output extent"));
+                }
                 return if valid(&bitmap) {
-                    Ok(Some(bitmap))
+                    Snapshot::owned(&allocation, bitmap, output_charge).map(Some)
                 } else {
                     Err(error("InvalidStateError"))
                 };
@@ -148,25 +319,29 @@ fn source_with_orientation(
         return Err(V8BindingError::JavaScriptException);
     }
     if canvas {
-        let (width, height) = canvas_dimensions(&owner, node)?;
+        let (width, height) = canvas_output_dimensions(&owner, node)?;
         if width == 0 || height == 0 {
             return Err(error("InvalidStateError"));
         }
-        let mut bitmap = owner
-            .canvas_images
-            .borrow()
-            .get(&node)
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| canvas_context_settings::empty(&owner, node, width, height))?;
-        bitmap.origin_clean &= !owner.tainted_canvases.borrow().contains(&node);
-        Ok(Some(bitmap))
+        let clean = !canvas_tainted(&owner, node);
+        let renderers = owner.bitmap_renderer_surfaces.borrow();
+        let canvases = owner.canvas_images.borrow();
+        if let Some(image) = renderers.image(&node).or_else(|| canvases.get(&node)) {
+            Snapshot::copy(&allocation, image, clean).map(Some)
+        } else {
+            let size = image_data_size(width, height)?;
+            let pixels = allocation.reserve(size)
+                .map_err(|_| V8BindingError::Allocation("empty image source snapshot admission"))?;
+            let mut image = canvas_context_settings::empty(&owner, node, width, height)?;
+            image.origin_clean &= clean;
+            Snapshot::owned(&allocation, image, pixels).map(Some)
+        }
     } else {
         if owner.failed_images.borrow().contains(&node) {
             return Err(error("InvalidStateError"));
         }
-        if let Some(image) = owner.decoded_images.borrow().get(&node).cloned() {
-            return Ok(Some(image));
+        if let Some(image) = owner.decoded_images.borrow().get(&node) {
+            return Snapshot::copy(&allocation, image, true).map(Some);
         }
         let svg = owner.decoded_svg_images.borrow().get(&node).cloned();
         if let Some(bytes) = svg {
@@ -188,9 +363,10 @@ fn source_with_orientation(
                 origin_clean: owner.svg_image_origin_clean.borrow().get(&node).copied().unwrap_or(false),
             };
             owner.decoded_images.borrow_mut().insert(node, bitmap.clone());
-            return Ok(Some(bitmap));
+            return Snapshot::existing(&allocation, bitmap).map(Some);
         }
-        Ok(owner.decoded_images.borrow().get(&node).cloned())
+        owner.decoded_images.borrow().get(&node)
+            .map(|image| Snapshot::copy(&allocation, image, true)).transpose()
     }
 }
 fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -203,6 +379,7 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         1 => rv.set_uint32(backing.borrow().as_ref().map_or(0, |image| image.height)),
         2 => {
             backing.borrow_mut().take();
+            release_consumed(scope, args.this().into());
         }
         _ => {}
     }
@@ -376,8 +553,15 @@ fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                 ((w as f64 * height as f64 / width as f64).ceil().max(1.)) as u32
             })
         });
-        image_data_size(out_width, out_height)?;
+        let output_size = image_data_size(out_width, out_height)?;
+        let allocation = state.capture_retained_allocation(tc,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+        let output_charge = allocation.reserve(output_size)
+            .map_err(|_| V8BindingError::Allocation("ImageBitmap transformed output admission"))?;
         let mut output = empty_canvas_bitmap(out_width, out_height)?;
+        if output.rgba.capacity() != output_size {
+            return Err(V8BindingError::Allocation("ImageBitmap transformed output extent"));
+        }
         if i64::from(out_width) == width && i64::from(out_height) == height {
             for row in 0..out_height {
                 let source_y = y + i64::from(row);
@@ -426,7 +610,7 @@ fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
             }
         }
         output.origin_clean = source.origin_clean;
-        allocate(tc, &state, output)
+        allocate_admitted(tc, &state, output, &allocation, output_charge)
     })();
     match result {
         Ok(bitmap) => {
@@ -465,4 +649,82 @@ pub(super) fn install(
         .ok_or(V8BindingError::Allocation("createImageBitmap"))?;
     let global = context.global(scope);
     set_object_property(scope, global, "createImageBitmap", function.into())
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    #[test]
+    fn bitmap_handoff_moves_pixels_and_keeps_admission_until_close() {
+        use super::super::tests::initialize_v8;
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let allocation = state.capture_retained_allocation(scope,
+            Arc::new(std::sync::atomic::AtomicBool::new(false))).unwrap();
+        let image = DecodedImage { width: 1, height: 1, origin_clean: false,
+            rgba: vec![7, 8, 9, 255] };
+        let snapshot = Snapshot::copy(&allocation, &image, true).unwrap();
+        let retained = snapshot.clone();
+        let records = state.platform_objects.borrow().len();
+        assert!(allocate_snapshot(scope, &state, snapshot, &allocation).is_err());
+        assert_eq!(state.platform_objects.borrow().len(), records);
+        assert_eq!(retained.rgba, image.rgba);
+        let pointer = retained.rgba.as_ptr();
+        let pixels = Arc::downgrade(&retained.0._pixels);
+        let metadata = Arc::downgrade(&retained.0._metadata);
+        let object = allocate_snapshot(scope, &state, retained, &allocation).unwrap();
+        let backing = identify(scope, object.into()).unwrap();
+        {
+            let borrowed = backing.borrow();
+            let bitmap = borrowed.as_ref().unwrap();
+            assert_eq!(bitmap.rgba.as_ptr(), pointer);
+            assert!(!bitmap.origin_clean);
+        }
+        assert!(metadata.upgrade().is_none());
+        assert!(pixels.upgrade().is_some());
+        backing.borrow_mut().take();
+        release_consumed(scope, object.into());
+        assert!(pixels.upgrade().is_none());
+    }
+    #[test]
+    fn snapshot_copy_is_admitted_independent_shared_and_released_after_last_owner() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let retired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let allocation = state.capture_retained_allocation(scope, retired.clone()).unwrap();
+        let mut image = DecodedImage { width: 1, height: 1, origin_clean: true, rgba: vec![1,2,3,255] };
+        let snapshot = Snapshot::copy(&allocation, &image, true).unwrap();
+        let retained = snapshot.clone();
+        assert!(Rc::ptr_eq(&snapshot.0, &retained.0));
+        assert_ne!(snapshot.rgba.as_ptr(), image.rgba.as_ptr());
+        image.rgba[0] = 99;
+        assert_eq!(snapshot.rgba, [1,2,3,255]);
+        let pixels = Arc::downgrade(&snapshot.0._pixels);
+        let metadata = Arc::downgrade(&snapshot.0._metadata);
+        retired.store(true, std::sync::atomic::Ordering::Release);
+        assert!(Snapshot::copy(&allocation, &image, true).is_err());
+        assert_eq!(retained.rgba, [1,2,3,255]);
+        drop(snapshot);
+        assert!(pixels.upgrade().is_some() && metadata.upgrade().is_some());
+        let (frame_image, frame_custody) = retained.frame_parts();
+        let cloned_image = frame_image.clone();
+        let cloned_custody = frame_custody.clone();
+        assert!(Rc::ptr_eq(&frame_image, &cloned_image));
+        drop(frame_image);
+        drop(frame_custody);
+        assert!(pixels.upgrade().is_some() && metadata.upgrade().is_some());
+        drop(cloned_image);
+        drop(cloned_custody);
+        assert!(pixels.upgrade().is_none() && metadata.upgrade().is_none());
+    }
 }

@@ -4206,13 +4206,36 @@ pub(super) fn dispatch_htmlcanvaselement_getcontext<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
         let context_id = required_string(scope, args, 0)?;
-        if context_id != "2d" {
+        if context_id != "2d" && context_id != "bitmaprenderer" {
             return Ok(Some(v8::null(scope).into()));
         }
         let owner = wrap_node(scope, state, node)?;
         let cache_name = v8::String::new(scope, "oryn.canvas.context2d")
             .ok_or(V8BindingError::Allocation("canvas context cache"))?;
         let cache_key = v8::Private::for_api(scope, Some(cache_name));
+        if context_id == "bitmaprenderer" {
+            if owner.get_private(scope, cache_key).is_some_and(|value| value.is_object()) {
+                return Ok(Some(v8::null(scope).into()));
+            }
+            if let Some(context) = bitmap_renderer::cached(scope, owner)? {
+                return Ok(Some(context));
+            }
+            let alpha = checked_dictionary_member(scope, args.get(1), "alpha")?
+                .map_or(true, |value| value.boolean_value(scope));
+            let (state, _) = node_identity::argument(scope, owner.into())?
+                .ok_or(V8BindingError::Allocation("bitmap renderer settings owner"))?;
+            if owner.get_private(scope, cache_key).is_some_and(|value| value.is_object()) {
+                return Ok(Some(v8::null(scope).into()));
+            }
+            if let Some(context) = bitmap_renderer::cached(scope, owner)? {
+                return Ok(Some(context));
+            }
+            let context = bitmap_renderer::create(scope, &state, owner, alpha)?;
+            return Ok(Some(context.into()));
+        }
+        if bitmap_renderer::cached(scope, owner)?.is_some() {
+            return Ok(Some(v8::null(scope).into()));
+        }
         if let Some(context) = owner
             .get_private(scope, cache_key)
             .filter(|value| value.is_object())
@@ -4224,6 +4247,9 @@ pub(super) fn dispatch_htmlcanvaselement_getcontext<'s>(
         // Use the current native owner and honor the context that won creation.
         let (state, node) = node_identity::argument(scope, owner.into())?
             .ok_or(V8BindingError::Allocation("canvas settings owner"))?;
+        if bitmap_renderer::cached(scope, owner)?.is_some() {
+            return Ok(Some(v8::null(scope).into()));
+        }
         if let Some(context) = owner.get_private(scope, cache_key).filter(|value| value.is_object()) {
             return Ok(Some(context));
         }

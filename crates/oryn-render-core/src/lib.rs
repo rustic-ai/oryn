@@ -1536,8 +1536,29 @@ mod tests {
         assert!(snapshot.visual_viewport.is_none());
         assert!(snapshot.frames[0].snapshot.visual_viewport.is_none());
     }
+    #[test]
+    fn native_snapshot_custody_survives_clones_without_changing_wire_or_visual_equality() {
+        let baseline = empty_snapshot();
+        let wire = serde_json::to_vec(&baseline).unwrap();
+        let owner = std::sync::Arc::new(());
+        let weak = std::sync::Arc::downgrade(&owner);
+        let mut snapshot = baseline.clone();
+        snapshot.native_custody = oryn_common::v4::NativePaintCustody::new(owner.clone());
+        let retained = snapshot.clone();
+        drop(owner);
+        assert_eq!(snapshot, baseline);
+        assert_eq!(serde_json::to_vec(&snapshot).unwrap(), wire);
+        let decoded: PaintSnapshot = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(decoded, snapshot);
+        drop(snapshot);
+        assert!(weak.upgrade().is_some());
+        drop(retained);
+        assert!(weak.upgrade().is_none());
+    }
+
     pub(super) fn empty_snapshot() -> PaintSnapshot {
         PaintSnapshot {
+            native_custody: Default::default(),
             local_effects: Default::default(),
             visual_viewport: None,
             frames: Vec::new(),

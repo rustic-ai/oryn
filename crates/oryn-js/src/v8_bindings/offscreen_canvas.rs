@@ -2,9 +2,15 @@
 //! leased canvas surface. The surface never enters the authored DOM or exposes
 //! an HTMLElement wrapper; ownership is the OffscreenCanvas platform object.
 use super::*;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ContextKind {
+    None,
+    TwoD,
+    BitmapRenderer,
+}
 pub(super) struct Record {
     pub(super) node: Cell<Option<NodeId>>,
-    context: Cell<bool>,
+    pub(super) context: Cell<ContextKind>,
     lease: RefCell<Option<oryn_dom::TrackedNodeLease>>,
 }
 pub(super) type Backing = Rc<Record>;
@@ -23,7 +29,7 @@ impl Source {
     pub(super) fn transfer_error(&self) -> Option<&'static str> {
         if self.backing.node.get().is_none() || self.owner.execution_retired() {
             Some("DataCloneError")
-        } else if self.backing.context.get() {
+        } else if self.backing.context.get() != ContextKind::None {
             Some("InvalidStateError")
         } else {
             None
@@ -31,26 +37,52 @@ impl Source {
     }
     pub(super) fn valid(&self) -> bool {
         self.backing.node.get().is_some()
-            && !self.backing.context.get()
+            && self.backing.context.get() == ContextKind::None
             && !self.owner.execution_retired()
     }
     pub(super) fn snapshot(&self) -> Result<DecodedImage, V8BindingError> {
+        if self.owner.execution_retired() {
+            return Err(error("InvalidStateError"));
+        }
         let node = self
             .backing
             .node
             .get()
             .ok_or_else(|| error("InvalidStateError"))?;
         let (width, height) = canvas_dimensions(&self.owner, node)?;
-        let mut bitmap = self
+        let renderer = self.owner.bitmap_renderer_surfaces.borrow().image(&node).cloned();
+        let mut bitmap = renderer.or_else(|| self
             .owner
             .canvas_images
             .borrow()
             .get(&node)
-            .cloned()
+            .cloned())
             .map(Ok)
             .unwrap_or_else(|| canvas_context_settings::empty(&self.owner, node, width, height))?;
-        bitmap.origin_clean &= !self.owner.tainted_canvases.borrow().contains(&node);
+        bitmap.origin_clean &= !canvas_tainted(&self.owner, node);
         Ok(bitmap)
+    }
+    pub(super) fn charged_snapshot(&self, allocation: &BindingRetainedAllocation)
+        -> Result<image_bitmap::Snapshot, V8BindingError>
+    {
+        if self.owner.execution_retired() { return Err(error("InvalidStateError")); }
+        let node = self.backing.node.get().ok_or_else(|| error("InvalidStateError"))?;
+        let clean = !canvas_tainted(&self.owner, node);
+        let renderers = self.owner.bitmap_renderer_surfaces.borrow();
+        let canvases = self.owner.canvas_images.borrow();
+        if let Some(image) = renderers.image(&node).or_else(|| canvases.get(&node)) {
+            image_bitmap::Snapshot::copy(allocation, image, clean)
+        } else {
+            let (width, height) = canvas_dimensions(&self.owner, node)?;
+            if width == 0 || height == 0 {
+                return Err(error("InvalidStateError"));
+            }
+            let pixels = allocation.reserve(image_data_size(width, height)?)
+                .map_err(|_| V8BindingError::Allocation("offscreen source snapshot admission"))?;
+            let mut image = canvas_context_settings::empty(&self.owner, node, width, height)?;
+            image.origin_clean &= clean;
+            image_bitmap::Snapshot::owned(allocation, image, pixels)
+        }
     }
     pub(super) fn detach(&self) {
         if let Some(node) = self.backing.node.take() {
@@ -99,7 +131,7 @@ fn record(state: &V8BindingState, width: u32, height: u32) -> Result<Backing, V8
     let lease = oryn_dom::TrackedNodeLease::new(&state.dom, node)?;
     Ok(Rc::new(Record {
         node: Cell::new(Some(node)),
-        context: Cell::new(false),
+        context: Cell::new(ContextKind::None),
         lease: RefCell::new(Some(lease)),
     }))
 }
@@ -193,6 +225,12 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         match operation {
             2 | 3 => {
                 let dimension = dimension(scope, args.get(0))?;
+                // Numeric conversion may run author code that transfers the
+                // source or retires its execution. Never write the pre-conversion
+                // leased NodeId after that ownership has disappeared.
+                if source.owner.execution_retired() || source.backing.node.get() != Some(node) {
+                    return Err(error("InvalidStateError"));
+                }
                 source.owner.dom.borrow_mut().set_attribute(
                     node,
                     if operation == 2 { "width" } else { "height" },
@@ -207,7 +245,36 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                     .to_string(scope)
                     .ok_or(V8BindingError::JavaScriptException)?
                     .to_rust_string_lossy(scope);
-                if kind != "2d" {
+                if kind != "2d" && kind != "bitmaprenderer" {
+                    return Ok(Some(v8::null(scope).into()));
+                }
+                if kind == "bitmaprenderer" {
+                    if source.backing.context.get() == ContextKind::TwoD {
+                        return Ok(Some(v8::null(scope).into()));
+                    }
+                    let owner = args.this();
+                    if let Some(context) = bitmap_renderer::cached(scope, owner)? {
+                        return Ok(Some(context));
+                    }
+                    // Convert the sole dictionary member before committing
+                    // ownership; getters may create a competing 2D context.
+                    let alpha = checked_dictionary_member(scope, args.get(1), "alpha")?
+                        .map_or(true, |value| value.boolean_value(scope));
+                    let source = identify(scope, owner.into()).ok_or_else(|| error("InvalidStateError"))?;
+                    if source.backing.node.get().is_none() || source.owner.execution_retired() {
+                        return Err(error("InvalidStateError"));
+                    }
+                    if source.backing.context.get() == ContextKind::TwoD {
+                        return Ok(Some(v8::null(scope).into()));
+                    }
+                    if let Some(context) = bitmap_renderer::cached(scope, owner)? {
+                        return Ok(Some(context));
+                    }
+                    let context = bitmap_renderer::create(scope, &source.owner, owner, alpha)?;
+                    source.backing.context.set(ContextKind::BitmapRenderer);
+                    return Ok(Some(context.into()));
+                }
+                if source.backing.context.get() == ContextKind::BitmapRenderer {
                     return Ok(Some(v8::null(scope).into()));
                 }
                 let owner = args.this();
@@ -223,6 +290,11 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                 let settings = canvas_context_settings::parse(scope, args.get(1))?;
                 let source = identify(scope, owner.into()).ok_or_else(|| error("InvalidStateError"))?;
                 let node = source.backing.node.get().ok_or_else(|| error("InvalidStateError"))?;
+                // Settings getters can create another context reentrantly.
+                // Honor the kind that won before constructing any new wrapper.
+                if source.backing.context.get() == ContextKind::BitmapRenderer {
+                    return Ok(Some(v8::null(scope).into()));
+                }
                 if let Some(context) = owner.get_private(scope, key).filter(|value| value.is_object()) {
                     return Ok(Some(context));
                 }
@@ -246,20 +318,23 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                 {
                     return Err(V8BindingError::Allocation("offscreen context ownership"));
                 }
-                source.backing.context.set(true);
+                source.backing.context.set(ContextKind::TwoD);
                 source.owner.canvas_context_settings.borrow_mut().insert(node, settings);
                 Ok(Some(context.into()))
             }
             5 => {
-                if !source.backing.context.get() {
+                if source.backing.context.get() == ContextKind::None {
                     return Err(error("InvalidStateError"));
                 }
-                let bitmap = source.snapshot()?;
+                let allocation = source.owner.capture_retained_allocation(scope,
+                    Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+                let bitmap = source.charged_snapshot(&allocation)?;
                 if bitmap.width == 0 || bitmap.height == 0 {
                     return Err(error("InvalidStateError"));
                 }
-                let object = image_bitmap::allocate(scope, &source.owner, bitmap)?;
+                let object = image_bitmap::allocate_snapshot(scope, &source.owner, bitmap, &allocation)?;
                 source.owner.canvas_images.borrow_mut().remove(&node);
+                source.owner.bitmap_renderer_surfaces.borrow_mut().clear_pixels(&node);
                 source.owner.tainted_canvases.borrow_mut().remove(&node);
                 Ok(Some(object.into()))
             }
@@ -296,8 +371,8 @@ fn convert_to_blob(
         // reading native pixels, taint, dimensions or allocating encoded output.
         if source.owner.execution_retired() { return Err(error("InvalidStateError")); }
         let node = source.backing.node.get().ok_or_else(|| error("InvalidStateError"))?;
-        let (width, height) = canvas_dimensions(&source.owner, node)?;
-        if source.owner.tainted_canvases.borrow().contains(&node) {
+        let (width, height) = canvas_output_dimensions(&source.owner, node)?;
+        if canvas_tainted(&source.owner, node) {
             return Err(error("SecurityError"));
         }
         if width == 0 || height == 0 {
@@ -373,6 +448,66 @@ pub(super) fn install_members(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_kinds_block_transfer_without_coercing_other_interfaces() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<canvas id='surface'></canvas>").into_runtime().unwrap()));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script = v8::String::new(scope, "new OffscreenCanvas(2,3)").unwrap();
+        let object = v8::Script::compile(scope, script, None).unwrap().run(scope).unwrap();
+        let source = identify(scope, object).unwrap();
+        assert!(source.valid());
+        assert_eq!(source.transfer_error(), None);
+        for kind in [ContextKind::TwoD, ContextKind::BitmapRenderer] {
+            source.backing.context.set(kind);
+            assert!(!source.valid());
+            assert_eq!(source.transfer_error(), Some("InvalidStateError"));
+        }
+        source.backing.context.set(ContextKind::None);
+        source.detach();
+        assert!(!source.valid());
+        assert_eq!(source.transfer_error(), Some("DataCloneError"));
+
+        // A DOM canvas has a BigInt node identity, not a platform-object ID.
+        // The wrong-interface probe must not invoke its ToNumber conversion.
+        let script = v8::String::new(scope, "document.getElementById('surface')").unwrap();
+        let object = v8::Script::compile(scope, script, None).unwrap().run(scope).unwrap();
+        v8::tc_scope!(let tc, scope);
+        assert!(image_bitmap::identify(tc, object).is_none());
+        assert!(!tc.has_caught());
+        assert!(identify(tc, object).is_none());
+        assert!(!tc.has_caught());
+    }
+
+    #[test]
+    fn dimension_conversion_cannot_mutate_a_transferred_source() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script = v8::String::new(scope, r#"(()=>{
+            for(const key of ['width','height']) {
+                const source=new OffscreenCanvas(2,3);let moved;
+                try {
+                    source[key]={valueOf(){moved=structuredClone(source,{transfer:[source]});return 9}};
+                    throw Error('detached setter accepted');
+                } catch(e) { if(e.name!=='InvalidStateError')throw e; }
+                if(source.width!==0 || source.height!==0 || moved.width!==2 || moved.height!==3)
+                    throw Error('conversion changed transferred dimensions');
+            }
+            return true;
+        })()"#).unwrap();
+        let result = v8::Script::compile(scope, script, None).unwrap().run(scope).unwrap();
+        assert!(result.is_true());
+    }
 
     #[test]
     fn offscreen_encoding_rejects_receiver_detachment_and_empty_dimensions() {

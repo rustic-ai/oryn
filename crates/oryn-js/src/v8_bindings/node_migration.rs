@@ -42,6 +42,13 @@ impl Wrappers {
             .wrappers
             .borrow()
             .preflight_migration(captured.len())?;
+        let renderer_count = sources.iter().map(|source| nodes.iter()
+            .filter(|node| source.bitmap_renderer_surfaces.borrow().contains(node)).count()).sum();
+        if renderer_count != 0 {
+            let allocation = destination.capture_retained_allocation(scope,
+                Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
+            destination.bitmap_renderer_surfaces.borrow_mut().reserve(&allocation, renderer_count)?;
+        }
         Ok(Self { captured })
     }
     pub(super) fn publish(
@@ -203,6 +210,10 @@ pub(super) fn move_node_maps(
             };
         }
         move_entry!(canvas_images);
+        let renderer = source.bitmap_renderer_surfaces.borrow_mut().take(old);
+        if let Some((_, image, charge, alpha)) = renderer {
+            destination.bitmap_renderer_surfaces.borrow_mut().insert_reserved(*new, image, charge, alpha);
+        }
         move_entry!(canvas_context_settings);
         move_entry!(canvas_draw_states);
         move_entry!(canvas_saved_states);

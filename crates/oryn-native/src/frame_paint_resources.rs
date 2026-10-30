@@ -221,8 +221,23 @@ impl RustExecutableDocument {
             .capture_visual_viewport(realm, generation, epoch)
             .map_err(|error| HostError::Execution(error.to_string()))
     }
+    pub(crate) fn admit_paint_storage(&mut self, bytes: usize)
+        -> Result<oryn_js::drag_image::NativeCustody, HostError>
+    {
+        let identity = if let Some(scope) = self.automation_scope.as_ref() {
+            self.validate_automation_scope(scope)?;
+            (scope.realm, scope.document_generation, scope.stream_epoch)
+        } else {
+            let root = self.automation_realms().into_iter()
+                .find(|root| root.parent_realm.is_none() && root.live)
+                .ok_or_else(|| HostError::Execution("native paint storage owner unavailable".into()))?;
+            (root.realm, root.document_generation, root.stream_epoch)
+        };
+        self.agent.host.admit_paint_storage(identity.0, identity.1, identity.2, bytes)
+            .map_err(|error| HostError::Execution(error.to_string()))
+    }
     pub(crate) fn document_paint_images(
-        &self,
+        &mut self,
     ) -> Result<Vec<oryn_js::drag_image::Resource>, HostError> {
         if self.automation_scope.is_some() {
             return self.selected_paint_images();
@@ -240,7 +255,7 @@ impl RustExecutableDocument {
             .map_err(|error| HostError::Execution(error.to_string()))
     }
     pub(crate) fn selected_paint_images(
-        &self,
+        &mut self,
     ) -> Result<Vec<oryn_js::drag_image::Resource>, HostError> {
         let scope = self.automation_scope.as_ref().ok_or_else(|| {
             HostError::Execution("frame image capture requires selected realm".into())
