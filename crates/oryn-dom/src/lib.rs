@@ -2541,7 +2541,20 @@ impl DomRuntime {
     }
 
     pub fn import_subtree(&mut self, source: &DomArena, node: NodeId) -> Result<NodeId, DomError> {
-        self.import_graph_from(source, node, true, true)
+        self.import_graph_from(source, node, true, true, None)
+    }
+
+    /// Report exact import identities while native cleanup owns each allocation.
+    /// This callback is native bookkeeping only: it must not publish author
+    /// callbacks. Consumers admit their own storage and publish only after the
+    /// complete import succeeds; on error all reported targets may be reclaimed.
+    pub fn import_subtree_with_identity(
+        &mut self,
+        source: &DomArena,
+        node: NodeId,
+        notify: &mut dyn FnMut(NodeId, NodeId) -> Result<(), DomError>,
+    ) -> Result<NodeId, DomError> {
+        self.import_graph_from(source, node, true, true, Some(notify))
     }
 
     pub fn import_node_from(
@@ -2550,7 +2563,7 @@ impl DomRuntime {
         node: NodeId,
         deep: bool,
     ) -> Result<NodeId, DomError> {
-        self.import_graph_from(source, node, deep, false)
+        self.import_graph_from(source, node, deep, false, None)
     }
 
     fn import_graph_from(
@@ -2559,6 +2572,7 @@ impl DomRuntime {
         node: NodeId,
         deep: bool,
         all_shadow: bool,
+        mut notify: Option<&mut dyn FnMut(NodeId, NodeId) -> Result<(), DomError>>,
     ) -> Result<NodeId, DomError> {
         // Validate the complete imported graph before allocating destination nodes.
         // Template contents are separate tree edges; hosted Documents are not
@@ -2598,6 +2612,9 @@ impl DomRuntime {
         let result = (|| {
             let imported = self.import_shallow_node(source, node)?;
             allocations.retain(self, imported)?;
+            if let Some(notify) = notify.as_deref_mut() {
+                notify(node, imported)?;
+            }
             if !all_shadow {
                 let record = self.arena.get_mut(imported)?;
                 record.declarative_shadow_root = false;
@@ -2628,6 +2645,9 @@ impl DomRuntime {
                     ImportTask::Copy(original, parent, template, deep) => {
                         let target = self.import_shallow_node(source, original)?;
                         allocations.retain(self, target)?;
+                        if let Some(notify) = notify.as_deref_mut() {
+                            notify(original, target)?;
+                        }
                         if !all_shadow {
                             let record = self.arena.get_mut(target)?;
                             record.declarative_shadow_root = false;
@@ -6976,6 +6996,58 @@ fn document_head_body_are_direct_html_children_with_frameset_precedence() {
             &[retained]
         );
         assert!(destination.is_connected(retained).unwrap());
+    }
+
+    #[test]
+    fn importing_identity_handoff_reports_exact_template_and_element_pairs() {
+        let parsed = html::parse("<details open></details><template><span>inside</span></template>");
+        let mut destination = DomRuntime::new();
+        let mut pairs = Vec::new();
+        let imported = destination.import_subtree_with_identity(
+            &parsed.dom, parsed.document,
+            &mut |original, target| { pairs.push((original, target)); Ok(()) },
+        ).unwrap();
+        assert_eq!(pairs.first(), Some(&(parsed.document, imported)));
+        let mapping = pairs.iter().copied().collect::<BTreeMap<_, _>>();
+        let mut originals = BTreeSet::new();
+        let mut targets = BTreeSet::new();
+        for (original, target) in pairs {
+            assert!(originals.insert(original));
+            assert!(targets.insert(target));
+            let source = parsed.dom.get(original).unwrap();
+            let copied = destination.arena().get(target).unwrap();
+            assert_eq!(source.kind, copied.kind);
+            assert_eq!(source.attributes, copied.attributes);
+            if let Some(content) = source.template_content {
+                assert_eq!(copied.template_content, Some(mapping[&content]));
+            }
+            assert_eq!(copied.children,
+                source.children.iter().map(|child| mapping[child]).collect::<Vec<_>>());
+        }
+        assert!(originals.iter().any(|node|
+            matches!(parsed.dom.get(*node).unwrap().kind, NodeKind::DocumentFragment)));
+    }
+
+    #[test]
+    fn importing_identity_handoff_failure_reclaims_unpublished_targets() {
+        let mut source = DomRuntime::new();
+        let root = source.create_element("section");
+        let child = source.create_element("span");
+        source.append_child(root, child).unwrap();
+        let mut destination = DomRuntime::new();
+        let mut targets = Vec::new();
+        let result = destination.import_subtree_with_identity(
+            source.arena(), root, &mut |_, target| {
+                targets.push(target);
+                if targets.len() == 2 { Err(DomError::MigrationCapacity) } else { Ok(()) }
+            },
+        );
+        assert_eq!(result, Err(DomError::MigrationCapacity));
+        assert_eq!(targets.len(), 2);
+        for target in targets {
+            assert!(destination.arena().get(target).is_err());
+        }
+        assert!(destination.children(destination.document()).unwrap().is_empty());
     }
 
     #[test]
