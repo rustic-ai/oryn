@@ -2537,7 +2537,7 @@ interface Document : Node {
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   [CEReactions] attribute HTMLElement? body;
-  attribute EventListener? onreadystatechange;
+  [LegacyLenientThis] attribute EventListener? onreadystatechange;
   attribute EventListener? onvisibilitychange;
   readonly attribute Element? scrollingElement;
   readonly attribute Node? doctype;
@@ -5157,7 +5157,14 @@ Window includes WindowOrWorkerGlobalScope;
 WorkerGlobalScope includes WindowOrWorkerGlobalScope;
 
 [Global=(Worker,DedicatedWorker), Exposed=DedicatedWorker]
-interface DedicatedWorkerGlobalScope : WorkerGlobalScope {};
+interface DedicatedWorkerGlobalScope : WorkerGlobalScope {
+  undefined postMessage(any message, sequence<object> transfer);
+  undefined postMessage(any message, optional StructuredSerializeOptions options = {});
+  undefined close();
+};
+dictionary StructuredSerializeOptions {
+  sequence<object> transfer = [];
+};
 [Global=(Worker,SharedWorker), Exposed=SharedWorker]
 interface SharedWorkerGlobalScope : WorkerGlobalScope {};
 [Global=(Worker,ServiceWorker), Exposed=ServiceWorker]

@@ -12848,7 +12848,83 @@ pub const DATA_TRANSFER_ITEM_LIST_MEMBERS: &[GeneratedMember] = &[
         legacy_lenient_this: false,
     },
 ];
-pub const DEDICATED_WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[];
+pub const DEDICATED_WORKER_GLOBAL_SCOPE_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        id: GeneratedMemberId(5570560),
+        name: "postMessage",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("undefined"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(5570561),
+        name: "postMessage",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("undefined"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(5570562),
+        name: "close",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("undefined"),
+        secure_context: false,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+        reflect_attribute: None,
+        legacy_null_to_empty_string: false,
+        legacy_lenient_this: false,
+    },
+];
 pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(5636096),
@@ -14048,7 +14124,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
         reflect_attribute: None,
         legacy_null_to_empty_string: false,
-        legacy_lenient_this: false,
+        legacy_lenient_this: true,
     },
     GeneratedMember {
         id: GeneratedMemberId(5636144),
@@ -91192,6 +91268,15 @@ pub const INTERSECTION_OBSERVER_ENTRY_INIT_DICTIONARY_MEMBERS: &[GeneratedDictio
     },
 ];
 #[allow(dead_code)]
+pub const STRUCTURED_SERIALIZE_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "transfer",
+        type_name: "sequence<object>",
+        required: false,
+        default: Some("[]"),
+    },
+];
+#[allow(dead_code)]
 pub const TEXT_UPDATE_EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "updateRangeStart",
@@ -91929,6 +92014,11 @@ pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
         name: "IntersectionObserverEntryInit",
         parent: None,
         members: INTERSECTION_OBSERVER_ENTRY_INIT_DICTIONARY_MEMBERS,
+    },
+    GeneratedDictionary {
+        name: "StructuredSerializeOptions",
+        parent: None,
+        members: STRUCTURED_SERIALIZE_OPTIONS_DICTIONARY_MEMBERS,
     },
     GeneratedDictionary {
         name: "TextUpdateEventInit",

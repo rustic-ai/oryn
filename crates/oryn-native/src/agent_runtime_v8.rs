@@ -261,9 +261,13 @@ impl NativeAgentRuntime {
                 context.global(scope).delete(scope, key.into());
             }
             if bootstrap.kind != AgentKind::Service && bootstrap.kind != AgentKind::AudioWorklet {
-                let function = v8::Function::new(scope, agent_close)
+                let function = v8::Function::builder(agent_close)
+                    .length(0)
+                    .constructor_behavior(v8::ConstructorBehavior::Throw)
+                    .build(scope)
                     .ok_or_else(|| agent_error("agent close allocation"))?;
                 let key = v8::String::new(scope, "close").unwrap();
+                function.set_name(key);
                 context
                     .global(scope)
                     .create_data_property(scope, key.into(), function.into());
@@ -284,9 +288,13 @@ impl NativeAgentRuntime {
                     .map_err(agent_error)?;
             }
             if bootstrap.kind == AgentKind::Dedicated {
-                let function = v8::Function::new(scope, agent_post_message)
+                let function = v8::Function::builder(agent_post_message)
+                    .length(1)
+                    .constructor_behavior(v8::ConstructorBehavior::Throw)
+                    .build(scope)
                     .ok_or_else(|| agent_error("agent postMessage allocation"))?;
                 let key = v8::String::new(scope, "postMessage").unwrap();
+                function.set_name(key);
                 context
                     .global(scope)
                     .create_data_property(scope, key.into(), function.into());
@@ -1049,7 +1057,20 @@ impl AgentRuntime for NativeAgentRuntime {
         result
     }
 }
-fn agent_close(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+fn agent_global_receiver(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments) -> bool {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    if !args.this().strict_equals(global.into()) {
+        throw_type_error(scope, "operation requires the owning worker global");
+        return false;
+    }
+    true
+}
+
+fn agent_close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    if !agent_global_receiver(scope, &args) {
+        return;
+    }
     if let Some(agent) = scope.get_slot::<AgentExecution>() {
         agent
             .closing
@@ -1064,6 +1085,9 @@ fn agent_post_message(
     args: v8::FunctionCallbackArguments,
     _: v8::ReturnValue,
 ) {
+    if !agent_global_receiver(scope, &args) {
+        return;
+    }
     let Some(agent) = scope.get_slot::<AgentExecution>().cloned() else {
         return;
     };
@@ -3132,6 +3156,23 @@ mod agent_runtime_tests {
             assert_eq!(runtime.host.evaluate_string("String(navigator instanceof WorkerNavigator && Object.prototype.toString.call(navigator)==='[object WorkerNavigator]' && navigator.serviceWorker instanceof ServiceWorkerContainer)").unwrap(),"true");
             if kind == AgentKind::Service {
                 assert_eq!(runtime.host.evaluate_string("String(clients instanceof Clients && ['get','matchAll','claim'].every(k=>typeof clients[k]==='function') && (()=>{try{clients.get.call({},'x');return false}catch(e){return e.name==='TypeError'}})())").unwrap(),"true");
+            }
+            if kind == AgentKind::Dedicated {
+                assert_eq!(runtime.host.evaluate_string(r#"(()=>{
+                    for(const [name,length] of [['postMessage',1],['close',0]]) {
+                        const d=Object.getOwnPropertyDescriptor(self,name);
+                        if(!d||!d.writable||!d.enumerable||!d.configurable
+                            ||d.value.name!==name||d.value.length!==length
+                            ||Object.hasOwn(DedicatedWorkerGlobalScope.prototype,name))return false;
+                        let bad=false;try{new d.value(null)}catch(e){bad=e instanceof TypeError}
+                        if(!bad)return false;
+                        let converted=false;bad=false;
+                        try{d.value.call({},null,{get transfer(){converted=true;return []}})}
+                        catch(e){bad=e instanceof TypeError}
+                        if(!bad||converted)return false;
+                    }
+                    return true;
+                })()"#).unwrap(),"true");
             }
             assert_eq!(runtime.host.evaluate_string(r#"(()=>{
                 const target=new EventTarget(),event=new Event('probe');let during=0;

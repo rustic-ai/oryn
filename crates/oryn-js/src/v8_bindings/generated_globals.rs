@@ -45,6 +45,39 @@ pub(super) fn install(
     let mut declaring = Some(selected);
     while let Some(interface) = declaring {
         for member in interface.members {
+            // Operations declared by a [Global] interface are own properties
+            // of its global object, just like its ordinary attributes. Native
+            // service installers run afterwards and retain their callbacks.
+            if !interface.global_names.is_empty()
+                && member.kind == GeneratedMemberKind::Operation
+                && !member.static_member && !member.unforgeable && !member.name.is_empty()
+                && !(member.secure_context && !state.secure_context.get())
+                && (member.exposed.is_empty()
+                    || exposed_on_global(member.exposed, binding_global, context))
+            {
+                if !installed.insert(member.name) { continue; }
+                let arity = interface.members.iter()
+                    .filter(|overload| overload.kind == GeneratedMemberKind::Operation
+                        && overload.name == member.name && !overload.static_member
+                        && !(overload.secure_context && !state.secure_context.get())
+                        && (overload.exposed.is_empty()
+                            || exposed_on_global(overload.exposed, binding_global, context)))
+                    .map(|overload| overload.arity).min().unwrap_or(member.arity);
+                let data = v8::Integer::new(scope, member.id.0 as i32);
+                let function = v8::FunctionTemplate::builder(generated_operation)
+                    .data(data.into()).length(i32::from(arity))
+                    .constructor_behavior(v8::ConstructorBehavior::Throw)
+                    .build(scope).get_function(scope)
+                    .ok_or(V8BindingError::Allocation("global operation"))?;
+                let name = v8::String::new(scope, member.name)
+                    .ok_or(V8BindingError::Allocation("global operation name"))?;
+                function.set_name(name);
+                if global.define_own_property(scope, name.into(), function.into(),
+                    v8::PropertyAttribute::NONE) != Some(true) {
+                    return Err(V8BindingError::JavaScriptException);
+                }
+                continue;
+            }
             if member.kind != GeneratedMemberKind::Attribute || member.static_member
                 || member.unforgeable
                 || (member.secure_context && !state.secure_context.get())
@@ -121,6 +154,64 @@ pub(super) fn indexed_db<'s>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_legacy_operations_and_document_leniency_preserve_native_contracts() {
+        super::super::tests::check_global_event_prototype_script(r#"(()=>{
+          const check=(v,m)=>{if(!v)throw Error(m)};
+          for(const name of ['captureEvents','releaseEvents']) {
+            const d=Object.getOwnPropertyDescriptor(window,name);
+            check(d&&d.writable&&d.enumerable&&d.configurable,name+' flags');
+            check(!Object.hasOwn(Window.prototype,name),name+' prototype placement');
+            check(d.value.name===name&&d.value.length===0,name+' metadata');
+            check(d.value.call(window)===undefined,name+' result');
+            let bad=false;try{d.value.call({})}catch(e){bad=e instanceof TypeError}
+            check(bad,name+' receiver');
+            bad=false;try{new d.value()}catch(e){bad=e instanceof TypeError}
+            check(bad,name+' nonconstructor');
+          }
+          const d=Object.getOwnPropertyDescriptor(Document.prototype,'onreadystatechange');
+          check(d&&d.enumerable&&d.configurable,'document descriptor');
+          check(d.get.call({})===undefined,'lenient getter');
+          check(d.set.call({},()=>{})===undefined,'lenient setter');
+          check(Document.prototype.onreadystatechange===undefined,'prototype getter');
+          const handler=()=>{};document.onreadystatechange=handler;
+          check(document.onreadystatechange===handler,'native handler');
+          document.onreadystatechange=null;
+          check(document.onreadystatechange===null,'native clear');
+          const strict=Object.getOwnPropertyDescriptor(Document.prototype,'onvisibilitychange');
+          let bad=false;try{strict.get.call({})}catch(e){bad=e instanceof TypeError}
+          check(bad,'visibility remains strict');
+          return true;
+        })()"#);
+    }
+
+    #[test]
+    fn authenticated_worker_operations_are_own_global_members_with_overload_metadata() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let handles,&mut isolate);
+        let context=v8::Context::new(handles,Default::default());
+        context.set_slot(Rc::new(WorkerExposureKind(crate::worker_wire::AgentKind::Dedicated)));
+        let scope=&mut v8::ContextScope::new(handles,context);
+        let dom=Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let document=dom.borrow().document();
+        let _state=install_generated_bindings_with_root_for_global(scope,context,dom,
+            RealmId(0),1,document,BindingGlobal::Worker).unwrap();
+        let source=v8::String::new(scope,r#"(()=>{
+          const d=Object.getOwnPropertyDescriptor(globalThis,'postMessage');
+          if(!d||typeof d.value!=='function'||!d.enumerable||!d.configurable||!d.writable)
+            throw Error('worker operation placement');
+          if(Object.hasOwn(DedicatedWorkerGlobalScope.prototype,'postMessage'))
+            throw Error('worker prototype operation');
+          if(d.value.name!=='postMessage'||d.value.length!==1)throw Error('worker metadata');
+          let bad=false;try{new d.value(null)}catch(e){bad=e instanceof TypeError}
+          if(!bad)throw Error('worker operation constructor');
+          if('captureEvents' in globalThis)throw Error('Window operation exposure');
+          return true;
+        })()"#).unwrap();
+        assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().is_true());
+    }
 
     #[test]
     fn window_global_attributes_keep_native_names_unforgeables_and_same_object() {

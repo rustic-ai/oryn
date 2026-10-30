@@ -828,6 +828,13 @@ pub(super) fn install_interfaces(
                         );
                     }
                     GeneratedMemberKind::Operation => {
+                        // A [Global] declaration is published on the actual
+                        // global by generated_globals, not its prototype.
+                        // Nonglobal ancestors retain their own prototype members.
+                        if !member.static_member && !member.unforgeable
+                            && !interface.global_names.is_empty() {
+                            continue;
+                        }
                         let arity = interface
                             .members
                             .iter()

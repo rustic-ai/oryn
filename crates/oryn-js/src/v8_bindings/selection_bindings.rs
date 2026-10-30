@@ -610,7 +610,9 @@ mod window_tests {
             if(detached.call(null)!==selection||detached.call(undefined)!==selection
                 ||(function(){'use strict';return detached()})()!==selection)
                 throw Error('Window receiver substitution');
-            if(selection!==window.getSelection()||selection!==document.getSelection()||selection!==Window.prototype.getSelection.call(window))throw Error('selection identity');
+            const descriptor=Object.getOwnPropertyDescriptor(window,'getSelection');
+            if(!descriptor||Object.hasOwn(Window.prototype,'getSelection'))throw Error('global placement');
+            if(selection!==window.getSelection()||selection!==document.getSelection()||selection!==descriptor.value.call(window))throw Error('selection identity');
             for(const receiver of [{},document,selection]){
                 let rejected=false;try{getSelection.call(receiver)}catch(e){rejected=e instanceof TypeError}
                 if(!rejected)throw Error('foreign receiver accepted');
