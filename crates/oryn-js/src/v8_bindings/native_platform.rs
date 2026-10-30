@@ -215,6 +215,22 @@ pub(super) fn rendering_visible(state: &V8BindingState) -> Result<bool, V8Bindin
         Err(_) => Ok(false),
     }
 }
+pub(super) fn window_is_popup(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<bool, V8BindingError> {
+    if state.execution_retired() {
+        return Err(failure("InvalidStateError"));
+    }
+    if state.native_platform.borrow().backend.is_some() {
+        return match request(state, Request::WindowState)? {
+            Response::WindowState { is_popup, .. } => Ok(is_popup),
+            _ => Err(failure("window popup authority unavailable")),
+        };
+    }
+    let context = state.global_object.to_local(scope)
+        .and_then(|object| object.get_creation_context(scope))
+        .ok_or_else(|| failure("window popup owner unavailable"))?;
+    Ok(context.get_slot::<crate::realm::WindowPopupPolicy>().is_some_and(|policy| policy.0))
+}
+
 pub(super) fn request(
     state: &V8BindingState,
     request: Request,
@@ -1542,7 +1558,7 @@ pub(super) fn task_snapshot(
         return Some((platform.hidden, platform.revision.unwrap_or(0)));
     }
     match request(state, Request::WindowState) {
-        Ok(Response::WindowState { hidden, revision }) => {
+        Ok(Response::WindowState { hidden, revision, .. }) => {
             let mut platform = state.native_platform.borrow_mut();
             platform.task_retry_at = None;
             platform.task_retry_attempt = 0;
@@ -2474,7 +2490,7 @@ mod tests {
                 }
                 Request::WindowPosition => Response::WindowPosition { x: 0, y: 0 },
                 Request::DocumentFocus => Response::DocumentFocus { focused: !hidden },
-                Request::WindowState => Response::WindowState { hidden, revision },
+                Request::WindowState => Response::WindowState { hidden, revision, is_popup: false },
                 Request::Geolocation => Response::Geolocation {
                     position: if permission == PermissionState::Granted {
                         Ok(crate::platform_control::Coordinates {
@@ -2589,6 +2605,7 @@ mod tests {
                 assert!(matches!(request, Request::WindowState));
                 Ok(Response::WindowState {
                     hidden: false,
+                    is_popup: false,
                     revision: 9,
                 })
             }
@@ -3964,6 +3981,7 @@ mod tests {
             } else if matches!(request, Request::WindowState) && MINIMIZED.with(Cell::get) {
                 Ok(Response::WindowState {
                     hidden: true,
+                    is_popup: false,
                     revision: 2,
                 })
             } else {
@@ -4640,6 +4658,7 @@ mod root_registration_receipt_tests {
             }
             Ok(Response::WindowState {
                 hidden: self.hidden.load(Ordering::SeqCst),
+                is_popup: false,
                 revision: 1,
             })
         }

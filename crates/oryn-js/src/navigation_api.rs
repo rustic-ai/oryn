@@ -7281,6 +7281,7 @@ mod history_publication_tests {
                     crate::platform_control::Request::WindowState
                 ));
                 Ok(crate::platform_control::Response::WindowState {
+                    is_popup: false,
                     hidden: self.0.load(Ordering::Relaxed),
                     revision: 1,
                 })

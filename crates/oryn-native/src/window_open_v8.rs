@@ -9,41 +9,47 @@ fn window_open_dom_string(scope: &mut v8::PinScope, value: v8::Local<v8::String>
 struct WindowOpenFeatures {
     noopener: bool,
     noreferrer: bool,
+    is_popup: bool,
 }
 fn window_open_features(value: &str) -> WindowOpenFeatures {
     let units = oryn_dom::dom_string::units(value);
     let scalar = String::from_utf16_lossy(&units).to_ascii_lowercase();
     let mut result = WindowOpenFeatures::default();
+    let mut bars = [false, false, false, true, false, false];
+    let mut popup = None;
+    let mut has_features = false;
+    // HTML ASCII whitespace excludes vertical tab. '=' is a separator even
+    // when repeated or encountered before a feature name.
+    let whitespace = |byte: u8| matches!(byte, b'\t' | b'\n' | b'\x0c' | b'\r' | b' ');
+    let separator = |byte: u8| whitespace(byte) || matches!(byte, b',' | b'=');
     // The feature tokenizer accepts ASCII whitespace around both '=' and ','.
     let bytes = scalar.as_bytes();
     let mut cursor = 0;
     while cursor < bytes.len() {
-        while cursor < bytes.len() && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b',')
-        {
+        while cursor < bytes.len() && separator(bytes[cursor]) {
             cursor += 1;
         }
         let start = cursor;
-        while cursor < bytes.len()
-            && !bytes[cursor].is_ascii_whitespace()
-            && !matches!(bytes[cursor], b',' | b'=')
-        {
+        while cursor < bytes.len() && !separator(bytes[cursor]) {
             cursor += 1;
         }
-        let name = &scalar[start..cursor];
-        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+        let name = match &scalar[start..cursor] {
+            "screenx" => "left",
+            "screeny" => "top",
+            "innerwidth" => "width",
+            "innerheight" => "height",
+            name => name,
+        };
+        while cursor < bytes.len() && whitespace(bytes[cursor]) {
             cursor += 1;
         }
         let mut value = "";
-        if cursor < bytes.len() && bytes[cursor] == b'=' {
-            cursor += 1;
-            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+        if cursor < bytes.len() && separator(bytes[cursor]) {
+            while cursor < bytes.len() && separator(bytes[cursor]) && bytes[cursor] != b',' {
                 cursor += 1;
             }
             let start = cursor;
-            while cursor < bytes.len()
-                && !bytes[cursor].is_ascii_whitespace()
-                && bytes[cursor] != b','
-            {
+            while cursor < bytes.len() && !separator(bytes[cursor]) {
                 cursor += 1;
             }
             value = &scalar[start..cursor];
@@ -60,9 +66,21 @@ fn window_open_features(value: &str) -> WindowOpenFeatures {
             || value == "yes"
             || value == "true"
             || !digits.is_empty() && digits.iter().any(|digit| *digit != b'0');
+        // These policy tokens are removed before popup classification. Repeated
+        // normalized names overwrite prior values, as the ordered-map algorithm.
+        if !name.is_empty() && !matches!(name, "noopener" | "noreferrer" | "attributionsrc") {
+            has_features = true;
+        }
         match name {
             "noopener" => result.noopener = enabled,
             "noreferrer" => result.noreferrer = enabled,
+            "popup" => popup = Some(enabled),
+            "location" => bars[0] = enabled,
+            "toolbar" => bars[1] = enabled,
+            "menubar" => bars[2] = enabled,
+            "resizable" => bars[3] = enabled,
+            "scrollbars" => bars[4] = enabled,
+            "status" => bars[5] = enabled,
             _ => {}
         }
         if cursor == start && cursor < bytes.len() {
@@ -70,6 +88,9 @@ fn window_open_features(value: &str) -> WindowOpenFeatures {
         }
     }
     result.noopener |= result.noreferrer;
+    result.is_popup = popup.unwrap_or(
+        has_features && ((!bars[0] && !bars[1]) || !bars[2] || !bars[3] || !bars[4] || !bars[5]),
+    );
     result
 }
 
@@ -346,6 +367,7 @@ fn native_window_open_callback(
             let response = endpoint
                 .client
                 .request(ContextServiceRequest::OpenPage {
+                    is_popup: features.is_popup,
                     hyperlink_audit: None,
                     local_inventory: local_navigation_inventory(scope)
                         .map_err(|error| error.to_string())?,
@@ -406,12 +428,13 @@ fn native_window_open_callback(
                                 "existing Window.open target supplied auxiliary admission".into()
                             );
                         }
-                        create_admitted_auxiliary_root(
+                        create_admitted_auxiliary_root_with_popup(
                             scope,
                             page_id,
                             opener_page_id,
                             admission,
                             related_navigation_url.as_deref(),
+                            features.is_popup,
                             rollback,
                         )
                         .map_err(|error| error.to_string())?;
@@ -447,6 +470,7 @@ fn native_window_open_callback(
                 name,
                 features.noopener,
                 features.noreferrer,
+                features.is_popup,
             )?,
         };
         if !features.noopener
@@ -497,6 +521,7 @@ mod window_open_feature_tests {
     #[test]
     fn open_page_is_not_an_author_json_operation() {
         let request = ContextServiceRequest::OpenPage {
+            is_popup: false,
             hyperlink_audit: None,
             local_inventory: Default::default(),
             link_navigation: false,
@@ -538,6 +563,76 @@ mod window_open_feature_tests {
             assert!(!window_open_features(value).noopener, "{value}");
         }
         assert!(window_open_features("noopener=0,noreferrer=1").noreferrer);
+        assert!(!window_open_features("noopener==0").noopener);
+        assert!(!window_open_features("=noopener=0").noopener);
+        assert!(window_open_features("noopener===2").noopener);
+        assert!(window_open_features("noopener=2=ignored").noopener);
+        assert!(!window_open_features("noopener\u{000b}=yes").noopener);
+    }
+
+    #[test]
+    fn popup_features_preserve_default_explicit_and_bar_policy() {
+        let cases = [
+            ("", false),
+            ("noopener", false),
+            ("noreferrer", false),
+            ("attributionsrc", false),
+            ("popup", true),
+            ("popup=1", true),
+            ("popup=true", true),
+            ("popup=0", false),
+            ("popup=no", false),
+            ("location", true),
+            ("toolbar", true),
+            ("menubar", true),
+            ("resizable", true),
+            ("scrollbars", true),
+            ("status", true),
+            ("titlebar", true),
+            ("personalbar", true),
+            ("left=500", true),
+            ("screenX=500", true),
+            ("width=500", true),
+            ("unknown=0", true),
+            (
+                "location,toolbar,menubar,resizable,scrollbars,status",
+                false,
+            ),
+            ("location,menubar,resizable,scrollbars,status", false),
+            ("toolbar,menubar,resizable,scrollbars,status", false),
+            ("location,toolbar,menubar,scrollbars,status", false),
+            (
+                "location,toolbar,menubar,resizable=no,scrollbars,status",
+                true,
+            ),
+            ("location,toolbar,resizable,scrollbars,status", true),
+            ("location,toolbar,menubar,resizable,status", true),
+            ("location,toolbar,menubar,resizable,scrollbars", true),
+            (
+                "popup=0,location,toolbar,menubar,resizable,scrollbars",
+                false,
+            ),
+            (
+                "popup=yes,location,toolbar,menubar,resizable,scrollbars,status",
+                true,
+            ),
+            ("POPUP = 0 , WIDTH = 10", false),
+            ("popup==0,width=10", false),
+            ("=popup=0,width=10", false),
+            ("popup=1,popup=0,width=10", false),
+            ("popup=0,popup=1", true),
+            ("popup=0=popup=1", true),
+        ];
+        for (features, expected) in cases {
+            assert_eq!(
+                window_open_features(features).is_popup,
+                expected,
+                "{features:?}"
+            );
+        }
+        let protected = window_open_features("popup=0,noreferrer");
+        assert!(protected.noopener && protected.noreferrer);
+        assert!(!protected.is_popup);
     }
 
     #[test]

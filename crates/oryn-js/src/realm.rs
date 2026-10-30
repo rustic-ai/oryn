@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RealmId(pub u32);
 
+/// Native browsing-context policy for contexts without a parent IPC backend.
+/// Set at creation; document replacement retains the owning context's policy.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WindowPopupPolicy(pub bool);
+
 /// An execution environment identity, scoped to its owning agent. Unlike a
 /// document generation, this is never reused after retirement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

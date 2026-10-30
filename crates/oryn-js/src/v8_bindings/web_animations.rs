@@ -3799,6 +3799,7 @@ mod tests {
                 _: crate::platform_control::Request,
             ) -> Result<crate::platform_control::Response, String> {
                 Ok(crate::platform_control::Response::WindowState {
+                    is_popup: false,
                     hidden: true,
                     revision: 1,
                 })

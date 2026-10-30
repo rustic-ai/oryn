@@ -18721,6 +18721,7 @@ impl RustExecutableDocument {
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 let response = client
                     .request(crate::context_service::ContextServiceRequest::OpenPage {
+                        is_popup: false,
                         hyperlink_audit: None,
                         local_inventory: Default::default(),
                         link_navigation: link.is_some(),
@@ -19859,6 +19860,7 @@ mod tests {
         let root = crate::host::CreatedAuxiliaryRoot {
             page_id: oryn_common::v3::PageId(2),
             opener_page_id: Some(oryn_common::v3::PageId(1)),
+            is_popup: false,
             realm,
             dom,
             document,

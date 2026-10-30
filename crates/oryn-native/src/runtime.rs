@@ -76,6 +76,7 @@ pub(crate) struct WorkerCreatorPagesInputs<'a> {
 
 /// Inputs for register.
 struct PageRegistrationInputs<'a> {
+    is_popup: bool,
     handle: PageHandle,
     opener_page_id: Option<PageId>,
     activate: bool,
@@ -1072,6 +1073,7 @@ struct BrowserContextInner {
 }
 
 struct InitialPopupPolicy {
+    is_popup: bool,
     relaxed_domain: Option<String>,
     sandbox_navigator: bool,
     target_name: String,
@@ -1342,6 +1344,7 @@ impl WorkerPool {
 
 #[derive(Debug)]
 struct PageRecord {
+    is_popup: bool,
     hidden_prerender: bool,
     prerender_source: Option<PageId>,
     created_by_web_content: bool,
@@ -1438,6 +1441,7 @@ impl ContextGroup {
 
     fn register(&self, params: PageRegistrationInputs<'_>) -> Result<(), RuntimeError> {
         let PageRegistrationInputs {
+            is_popup,
             handle,
             opener_page_id,
             activate,
@@ -1544,6 +1548,7 @@ impl ContextGroup {
                     None
                 },
                 hidden_prerender,
+                is_popup,
                 created_by_web_content: creator.is_some(),
                 is_closing: false,
                 #[cfg(unix)]
@@ -5220,6 +5225,15 @@ impl BrowserContext {
             .lock()
             .map_err(|_| "platform state lock poisoned".to_owned())?
             .query_partitioned(page, &top_origin, &origin.serialized, request)?;
+        if let oryn_js::platform_control::Response::WindowState { is_popup, .. } = &mut response {
+            let pages = self.inner.group.pages.lock().map_err(|_| "popup policy registry lock".to_owned())?;
+            let record = pages.get(&page).filter(|record| record.is_live())
+                .ok_or_else(|| "popup policy owner unavailable".to_owned())?;
+            *is_popup = record.is_popup && matches!(&owner,
+                crate::agent_registry::AgentOwner::Window {
+                    target: oryn_js::message_wire::WindowTarget::Root, ..
+                });
+        }
         if private_window
             && let oryn_js::platform_control::Response::WindowState { hidden, .. } = &mut response
         {
@@ -10959,7 +10973,17 @@ impl BrowserContext {
         noopener: bool,
         target_name: String,
     ) -> Result<PageHandle, RuntimeError> {
-        self.new_named_popup_from_creator_visibility(page, creator, noopener, target_name, false)
+        self.new_named_popup_from_creator_with_popup(page, creator, noopener, target_name, false)
+    }
+    pub(crate) fn new_named_popup_from_creator_with_popup(
+        &self,
+        page: PageId,
+        creator: &oryn_js::worker_wire::Creator,
+        noopener: bool,
+        target_name: String,
+        is_popup: bool,
+    ) -> Result<PageHandle, RuntimeError> {
+        self.new_named_popup_from_creator_visibility(page, creator, noopener, target_name, false, is_popup)
     }
     fn new_named_popup_from_creator_visibility(
         &self,
@@ -10968,6 +10992,7 @@ impl BrowserContext {
         noopener: bool,
         target_name: String,
         hidden: bool,
+        is_popup: bool,
     ) -> Result<PageHandle, RuntimeError> {
         if target_name.len() > 65_536 {
             return Err(RuntimeError::ProtocolViolation(
@@ -11020,6 +11045,7 @@ impl BrowserContext {
         // Recheck the selected generation after assembling its immutable policy.
         self.window_worker_creator(page, target, *document_generation, *stream_epoch)?;
         let policy = Some(InitialPopupPolicy {
+            is_popup,
             relaxed_domain: self
                 .document_domain_identity(page, creator)
                 .map_err(RuntimeError::ContextService)?
@@ -11351,6 +11377,7 @@ impl BrowserContext {
             .as_ref()
             .filter(|policy| policy.sandbox_navigator)
             .map(|policy| (policy.source_page, policy.target.clone()));
+        let is_popup = popup_policy.as_ref().is_some_and(|policy| policy.is_popup);
         let target_name = popup_policy
             .as_ref()
             .map(|policy| policy.target_name.clone())
@@ -11572,6 +11599,7 @@ impl BrowserContext {
                 })),
             };
             let admitted = self.inner.group.register(PageRegistrationInputs {
+                is_popup,
                 handle: handle.clone(),
                 opener_page_id,
                 activate,
@@ -11762,6 +11790,7 @@ impl BrowserContext {
             worker: None,
         };
         let admitted = self.inner.group.register(PageRegistrationInputs {
+            is_popup,
             handle: handle.clone(),
             opener_page_id,
             activate,
@@ -29419,6 +29448,67 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn popup_window_state_uses_registered_native_policy_not_opener_policy() {
+        use oryn_js::{
+            message_wire::{MessageRequest, WindowTarget},
+            platform_control::{Request, Response},
+            worker_wire::Creator,
+        };
+        for is_popup in [false, true] {
+            for noopener in [false, true] {
+                let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+                let opener = context.new_page();
+                let id = opener.page_id();
+                context.install_document_security(id, "https://popup-policy.test/".into(), &[]).unwrap();
+                context.handle_message_wire(id, MessageRequest::RegisterRootDocument {
+                    document_generation: 1, stream_epoch: 0,
+                }).unwrap();
+                let creator = Creator::Window { target: WindowTarget::Root,
+                    document_generation: 1, stream_epoch: 0 };
+                let child = context.new_named_popup_from_creator_with_popup(
+                    id, &creator, noopener, "policy-child".into(), is_popup,
+                ).unwrap();
+                let child_id = child.page_id();
+                let child_creator = context.native_initial_document_creator(child_id).unwrap();
+                assert!(matches!(context.native_platform_query(child_id, child_creator,
+                    Request::WindowState).unwrap(),
+                    Response::WindowState { is_popup: actual, .. } if actual == is_popup));
+                assert!(matches!(context.native_platform_query(id, creator.clone(),
+                    Request::WindowState).unwrap(),
+                    Response::WindowState { is_popup: false, .. }));
+                if !noopener {
+                    let receipt = context.capture_navigation_target(id, &creator, child_id, None).unwrap();
+                    let service = crate::context_service::ParentContextService::new(context.clone(), id);
+                    let response = service.handle(crate::context_service::ContextServiceRequest::OpenPage {
+                        is_popup: !is_popup,
+                        hyperlink_audit: None, local_inventory: Default::default(),
+                        link_navigation: false, user_initiated: false,
+                        defer_navigation: false, local_related_navigation: false,
+                        selected_target: Some(receipt), document_source: None,
+                        opener_page_id: id, creator: Some(creator), noopener: false,
+                        target_name: "policy-child".into(), form_authority: None,
+                        url: None, post: None, referrer_policy: None,
+                    }).unwrap();
+                    assert!(matches!(response, crate::context_service::ContextServiceResponse::PageOpened {
+                        page_id, created: false, ..
+                    } if page_id == child_id));
+                }
+                let mut pages = context.inner.group.pages.lock().unwrap();
+                let record = pages.get_mut(&child_id).unwrap();
+                assert_eq!(record.is_popup, is_popup);
+                assert_eq!(record.handle.opener_page_id, if noopener { None } else { Some(id) });
+                let mut replacement = record.descriptor.page.clone();
+                replacement.document_generation += 1;
+                replacement.url = "https://popup-policy.test/replacement".into();
+                replacement.title = "new document".into();
+                record.update_document(&replacement, record.descriptor.revision);
+                assert_eq!(record.is_popup, is_popup, "document replacement cannot change UI policy");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn platform_window_state_distinguishes_parked_and_retired_document_authority() {
         use oryn_js::{
             message_wire::{MessageRequest, WindowTarget},
@@ -44000,6 +44090,7 @@ mod popup_atomic_admission_tests {
             .unwrap();
         let origin = context.security_origin(opener.page_id()).unwrap();
         let policy = InitialPopupPolicy {
+            is_popup: false,
             relaxed_domain: None,
             sandbox_navigator: false,
             target_name: String::new(),

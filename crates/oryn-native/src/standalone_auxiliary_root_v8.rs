@@ -83,6 +83,7 @@ fn create_standalone_auxiliary_root<'s>(
     name: &str,
     noopener: bool,
     noreferrer: bool,
+    is_popup: bool,
 ) -> Result<Option<v8::Local<'s, v8::Object>>, String> {
     let source = creator
         .get_slot::<V8BindingState>()
@@ -162,6 +163,7 @@ fn create_standalone_auxiliary_root<'s>(
         .map_err(|error| error.to_string())?;
     let context = v8::Local::new(scope, &global);
     let result = (|| -> Result<(), String> {
+        context.set_slot(Rc::new(oryn_js::realm::WindowPopupPolicy(is_popup)));
         context.set_slot(Rc::new(RefCell::new(inherited)));
         context.set_slot(Rc::new(NativeInitialDocument(true)));
         if let Some(isolation) =

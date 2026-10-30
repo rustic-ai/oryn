@@ -39,6 +39,7 @@ impl BrowserContext {
             false,
             String::new(),
             true,
+            false,
         )?;
         let destination = page.page_id();
         let result = (|| {
@@ -80,7 +81,7 @@ impl BrowserContext {
         creator: &oryn_js::worker_wire::Creator,
         url: &str,
     ) -> Result<Option<PageId>, RuntimeError> {
-        self.blank_prerender_selection(source, creator, None, url, false)
+        self.blank_prerender_selection(source, creator, None, url, false, None)
             .map(|value| value.map(|value| value.page_id))
     }
     pub(crate) fn claim_blank_prerender(
@@ -90,7 +91,16 @@ impl BrowserContext {
         target: Option<PageId>,
         url: &str,
     ) -> Result<Option<crate::context_service::BlankPrerenderActivation>, RuntimeError> {
-        self.blank_prerender_selection(source, creator, target, url, true)
+        self.blank_prerender_selection(source, creator, target, url, true, None)
+    }
+    pub(crate) fn claim_blank_prerender_with_popup(
+        &self,
+        source: PageId,
+        creator: &oryn_js::worker_wire::Creator,
+        url: &str,
+        is_popup: bool,
+    ) -> Result<Option<crate::context_service::BlankPrerenderActivation>, RuntimeError> {
+        self.blank_prerender_selection(source, creator, None, url, true, Some(is_popup))
     }
     fn blank_prerender_selection(
         &self,
@@ -99,6 +109,7 @@ impl BrowserContext {
         target: Option<PageId>,
         url: &str,
         claim: bool,
+        popup_policy: Option<bool>,
     ) -> Result<Option<crate::context_service::BlankPrerenderActivation>, RuntimeError> {
         let oryn_js::worker_wire::Creator::Window {
             target: owner,
@@ -117,7 +128,7 @@ impl BrowserContext {
         {
             return Ok(None);
         }
-        let pages = self
+        let mut pages = self
             .inner
             .group
             .pages
@@ -151,6 +162,12 @@ impl BrowserContext {
             return Ok(None);
         };
         if claim {
+            if let Some(is_popup) = popup_policy {
+                // The record was validated under this same registry lock. Publish
+                // Window.open policy before returning the activation capability;
+                // lookups/reused-target requests do not enter this branch.
+                pages.get_mut(page).ok_or(RuntimeError::PageNotFound(*page))?.is_popup = is_popup;
+            }
             scope.blank_selected = true;
         }
         Ok(Some(crate::context_service::BlankPrerenderActivation {

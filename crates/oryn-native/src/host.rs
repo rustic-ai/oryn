@@ -4876,7 +4876,10 @@ mod raw_v8 {
     #[cfg(unix)]
     pub(crate) use auxiliary_root::CreatedAuxiliaryRoot;
     #[cfg(unix)]
-    use auxiliary_root::{create_admitted_auxiliary_root, local_auxiliary_window};
+    use auxiliary_root::{
+        create_admitted_auxiliary_root, create_admitted_auxiliary_root_with_popup,
+        local_auxiliary_window,
+    };
 
     #[cfg(unix)]
     struct NativeRootProxyLineage(RealmId);
@@ -14956,6 +14959,7 @@ mod raw_v8 {
             .client
             .request(ContextServiceRequest::OpenPage {
                 hyperlink_audit,
+                is_popup: false,
                 local_inventory: Default::default(),
                 link_navigation: true,
                 user_initiated,
@@ -15489,6 +15493,7 @@ mod raw_v8 {
             .client
             .request(ContextServiceRequest::OpenPage {
                 hyperlink_audit: None,
+                is_popup: false,
                 local_inventory: local_inventory.clone(),
                 link_navigation: false,
                 user_initiated: false,

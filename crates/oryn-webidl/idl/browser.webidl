@@ -47,10 +47,21 @@ dictionary TextEncoderEncodeIntoResult {
   unsigned long long written;
 };
 
+[Exposed=Window]
+interface BarProp {
+  readonly attribute boolean visible;
+};
+
 [Global=Window, Exposed=Window]
 interface Window : EventTarget {
   readonly attribute boolean isSecureContext;
   attribute DOMString status;
+  [Replaceable] readonly attribute BarProp locationbar;
+  [Replaceable] readonly attribute BarProp menubar;
+  [Replaceable] readonly attribute BarProp personalbar;
+  [Replaceable] readonly attribute BarProp scrollbars;
+  [Replaceable] readonly attribute BarProp statusbar;
+  [Replaceable] readonly attribute BarProp toolbar;
   readonly attribute Navigator navigator;
   [Replaceable] readonly attribute Navigator clientInformation;
   Selection? getSelection();

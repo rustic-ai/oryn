@@ -564,6 +564,7 @@ impl State {
                 Err("focus inspection requires native document authority".into())
             }
             Request::WindowState => Ok(Response::WindowState {
+                is_popup: false,
                 hidden: self.hidden.contains(&page),
                 revision: self.revision,
             }),

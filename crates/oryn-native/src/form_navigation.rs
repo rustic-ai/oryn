@@ -1896,6 +1896,17 @@ impl BrowserContext {
         noopener: bool,
         target_name: String,
     ) -> Result<PageHandle, RuntimeError> {
+        self.new_named_popup_from_document_with_popup(page, source, noopener, target_name, false)
+    }
+
+    pub(crate) fn new_named_popup_from_document_with_popup(
+        &self,
+        page: PageId,
+        source: &oryn_dom::DocumentProvenance,
+        noopener: bool,
+        target_name: String,
+        is_popup: bool,
+    ) -> Result<PageHandle, RuntimeError> {
         let snapshot = self.open_document_source(page, source)?;
         if target_name.len() > 65536 {
             return Err(RuntimeError::ProtocolViolation(
@@ -1941,6 +1952,7 @@ impl BrowserContext {
             (!noopener).then_some(page),
             None,
             Some(InitialPopupPolicy {
+                is_popup,
                 relaxed_domain: snapshot.relaxed_domain,
                 sandbox_navigator: !noopener && snapshot.source.policy.sandbox().is_some(),
                 target_name,

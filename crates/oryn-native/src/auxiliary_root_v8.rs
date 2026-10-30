@@ -5,6 +5,7 @@ use super::*;
 pub(crate) struct CreatedAuxiliaryRoot {
     pub page_id: PageId,
     pub opener_page_id: Option<PageId>,
+    pub is_popup: bool,
     pub route: crate::worker_route::WorkerRoute,
     pub actor_route: crate::worker_route::WorkerRoute,
     pub realm: RealmId,
@@ -31,6 +32,26 @@ pub(super) fn create_admitted_auxiliary_root(
     opener_page_id: Option<PageId>,
     admission: crate::context_service::RelatedRootAdmission,
     initial_navigation: Option<&str>,
+    rollback: crate::context_service::ContextAuxiliaryRollback,
+) -> Result<(), HostError> {
+    create_admitted_auxiliary_root_with_popup(
+        scope,
+        page_id,
+        opener_page_id,
+        admission,
+        initial_navigation,
+        false,
+        rollback,
+    )
+}
+
+pub(super) fn create_admitted_auxiliary_root_with_popup(
+    scope: &mut v8::PinScope,
+    page_id: PageId,
+    opener_page_id: Option<PageId>,
+    admission: crate::context_service::RelatedRootAdmission,
+    initial_navigation: Option<&str>,
+    is_popup: bool,
     mut rollback: crate::context_service::ContextAuxiliaryRollback,
 ) -> Result<(), HostError> {
     let creator = scope.get_current_context();
@@ -153,6 +174,7 @@ pub(super) fn create_admitted_auxiliary_root(
     let result = (|| {
         local.set_slot(Rc::new(oryn_js::realm::SecureContextState(secure_context)));
         local.set_slot(Rc::new(NativeInitialDocument(true)));
+        local.set_slot(Rc::new(oryn_js::realm::WindowPopupPolicy(is_popup)));
         local.set_slot(Rc::new(RootActorRoute(actor_route.clone())));
         let inherited_policy = creator.get_slot::<DocumentCodePolicy>();
         let state = install_native_document(
@@ -328,6 +350,7 @@ pub(super) fn create_admitted_auxiliary_root(
     registry.pending.push(CreatedAuxiliaryRoot {
         page_id,
         opener_page_id,
+        is_popup,
         route: admission.route,
         actor_route,
         realm,
@@ -818,32 +841,54 @@ mod tests {
 
     #[test]
     fn initial_auxiliary_navigation_is_root_local_and_seals_opener_source() {
-        exercise_initial_auxiliary_navigation(false);
+        exercise_initial_auxiliary_navigation(false, false);
+    }
+
+    #[test]
+    fn initial_auxiliary_popup_policy_survives_realm_and_actor_handoff() {
+        exercise_initial_auxiliary_navigation(false, true);
     }
 
     #[test]
     fn initial_auxiliary_failure_preserves_bootstrap_error_and_lost_rollback_ack() {
-        let original = exercise_initial_auxiliary_navigation(false);
-        let retained = exercise_initial_auxiliary_navigation(true);
-        assert!(retained.contains(&original), "primary error lost: {retained}");
+        let original = exercise_initial_auxiliary_navigation(false, false);
+        let retained = exercise_initial_auxiliary_navigation(true, false);
+        assert!(
+            retained.contains(&original),
+            "primary error lost: {retained}"
+        );
         assert!(retained.contains("injected lost rollback acknowledgement"));
     }
 
-    fn exercise_initial_auxiliary_navigation(lose_ack: bool) -> String {
+    fn exercise_initial_auxiliary_navigation(lose_ack: bool, is_popup: bool) -> String {
         use crate::context_service::ContextTransport;
         struct LoseRollbackAck {
             routes: Arc<Routes>,
             armed: std::sync::atomic::AtomicBool,
         }
         impl ContextTransport for LoseRollbackAck {
-            fn request(&self, _: ContextServiceRequest) -> Result<ContextServiceResponse, crate::RuntimeError> {
-                Err(crate::RuntimeError::ProtocolViolation("test requires route".into()))
+            fn request(
+                &self,
+                _: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                Err(crate::RuntimeError::ProtocolViolation(
+                    "test requires route".into(),
+                ))
             }
-            fn request_routed(&self, route: Option<&crate::worker_route::WorkerRoute>, request: ContextServiceRequest) -> Result<ContextServiceResponse, crate::RuntimeError> {
-                let rollback = matches!(&request, ContextServiceRequest::RollbackAuxiliaryRoot { .. });
+            fn request_routed(
+                &self,
+                route: Option<&crate::worker_route::WorkerRoute>,
+                request: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                let rollback = matches!(
+                    &request,
+                    ContextServiceRequest::RollbackAuxiliaryRoot { .. }
+                );
                 let response = self.routes.request_routed(route, request)?;
                 if rollback && self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                    return Err(crate::RuntimeError::ContextService("injected lost rollback acknowledgement".into()));
+                    return Err(crate::RuntimeError::ContextService(
+                        "injected lost rollback acknowledgement".into(),
+                    ));
                 }
                 Ok(response)
             }
@@ -927,17 +972,22 @@ mod tests {
             host.prepare_auxiliary_creator_fonts().unwrap();
             let state = host.retained_binding_state(parent).unwrap();
             assert!(state.native_layout_provider().is_some());
-            assert!(host.native_retained_admission_for_realm(parent).unwrap().is_some());
+            assert!(
+                host.native_retained_admission_for_realm(parent)
+                    .unwrap()
+                    .is_some()
+            );
             let result = {
                 v8::scope!(let handles,&mut host.isolate);
                 let context = v8::Local::new(handles, &parent_context);
                 let scope = &mut v8::ContextScope::new(handles, context);
-                create_admitted_auxiliary_root(
+                create_admitted_auxiliary_root_with_popup(
                     scope,
                     second.page_id(),
                     Some(first.page_id()),
                     admission,
                     Some(destination),
+                    is_popup,
                     rollback,
                 )
             };
@@ -954,13 +1004,27 @@ mod tests {
                     host.evaluate_string("document.body.textContent").unwrap(),
                     "parent"
                 );
-                cleanup_source.drain_script_cleanup(std::time::Duration::from_secs(5)).unwrap();
+                cleanup_source
+                    .drain_script_cleanup(std::time::Duration::from_secs(5))
+                    .unwrap();
                 continue;
             }
             result.unwrap();
             let roots = host.take_created_auxiliary_roots();
             assert_eq!(roots.len(), 1);
+            assert_eq!(roots[0].is_popup, is_popup);
             let child = roots[0].realm;
+            {
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, &host.contexts[&child]);
+                assert_eq!(
+                    context
+                        .get_slot::<oryn_js::realm::WindowPopupPolicy>()
+                        .unwrap()
+                        .0,
+                    is_popup,
+                );
+            }
             assert!(
                 host.take_location_navigation().is_none(),
                 "opener cannot consume child navigation"

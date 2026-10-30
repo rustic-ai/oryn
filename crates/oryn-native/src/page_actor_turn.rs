@@ -1918,36 +1918,71 @@ mod related_actor {
             let actor = WorkerRoute::issue(703, 1, 0).unwrap();
             let route = WorkerRoute::issue(703, 2, config.document_generation_base).unwrap();
             let context = Browser::in_process_with_config(config.clone())
-                .new_context_with_broker_and_services(options.clone(),
+                .new_context_with_broker_and_services(
+                    options.clone(),
                     SharedNetworkBroker::new(UnusedNetwork),
-                    SharedContextClient::for_test_transport(Arc::new(UnusedTransport), route.clone()));
+                    SharedContextClient::for_test_transport(
+                        Arc::new(UnusedTransport),
+                        route.clone(),
+                    ),
+                );
             let (sender, _receiver) = mpsc::channel(4);
             let (control, _updates) = std::sync::mpsc::sync_channel(2);
-            let page = PageHandle { id: 2, opener_page_id: Some(PageId(1)),
-                context: Arc::downgrade(&context.inner), context_guard: Some(context.inner.clone()),
-                frame_scope: None, sender: Some(sender.clone()), worker: None };
-            context.inner.group.register(PageRegistrationInputs {
-                handle: page.clone(), opener_page_id: Some(PageId(1)), activate: true,
-                attention_required: false, document_generation: config.document_generation_base + 1,
-                native_origin: SecurityOrigin::opaque().security_token_key(), creator: None,
-                target_name: String::new(), sandbox_navigator: None, hidden_prerender: false,
-            }).unwrap();
+            let page = PageHandle {
+                id: 2,
+                opener_page_id: Some(PageId(1)),
+                context: Arc::downgrade(&context.inner),
+                context_guard: Some(context.inner.clone()),
+                frame_scope: None,
+                sender: Some(sender.clone()),
+                worker: None,
+            };
+            context
+                .inner
+                .group
+                .register(PageRegistrationInputs {
+                    is_popup: false,
+                    handle: page.clone(),
+                    opener_page_id: Some(PageId(1)),
+                    activate: true,
+                    attention_required: false,
+                    document_generation: config.document_generation_base + 1,
+                    native_origin: SecurityOrigin::opaque().security_token_key(),
+                    creator: None,
+                    target_name: String::new(),
+                    sandbox_navigator: None,
+                    hidden_prerender: false,
+                })
+                .unwrap();
             let original = page.prompt_controller().unwrap();
-            registry().lock().unwrap().insert(route.clone(), Published {
-                actor: actor.clone(), sender: sender.downgrade(), control,
-                claimed: false, owned_page: Some(page),
-            });
+            registry().lock().unwrap().insert(
+                route.clone(),
+                Published {
+                    actor: actor.clone(),
+                    sender: sender.downgrade(),
+                    control,
+                    claimed: false,
+                    owned_page: Some(page),
+                },
+            );
             let _guard = PublicationGuard(actor.clone());
             let forged = WorkerRoute::issue(703, 1, 0).unwrap();
             assert!(claim_owned_page(&forged, &route, &config, &options, Some(PageId(1))).is_err());
             assert!(claim_owned_page(&actor, &route, &config, &options, Some(PageId(9))).is_err());
             let mut changed_options = options.clone();
             changed_options.allow_popups = !changed_options.allow_popups;
-            assert!(claim_owned_page(&actor, &route, &config, &changed_options, Some(PageId(1))).is_err());
+            assert!(
+                claim_owned_page(&actor, &route, &config, &changed_options, Some(PageId(1)))
+                    .is_err()
+            );
             assert!(!registry().lock().unwrap().get(&route).unwrap().claimed);
             let claimed = claim_owned_page(&actor, &route, &config, &options, Some(PageId(1)))
-                .unwrap().unwrap();
-            assert!(Arc::ptr_eq(&original, &claimed.prompt_controller().unwrap()));
+                .unwrap()
+                .unwrap();
+            assert!(Arc::ptr_eq(
+                &original,
+                &claimed.prompt_controller().unwrap()
+            ));
             assert_eq!(claimed.context.upgrade().unwrap().id, context.id());
             assert!(claim_owned_page(&actor, &route, &config, &options, Some(PageId(1))).is_err());
             assert!(claim(&actor, &route, context.downgrade()).is_err());
@@ -2327,6 +2362,7 @@ mod related_actor {
                     let route = created.route.clone();
                     let page = created.page_id;
                     let opener = created.opener_page_id;
+                    let is_popup = created.is_popup;
                     let broker = created.broker.clone();
                     let endpoint = created.context.clone();
                     let direct = endpoint.current_route().is_none();
@@ -2462,30 +2498,70 @@ mod related_actor {
                     };
                     let owned_page = if let Some(context) = local_owner.as_ref() {
                         let handle = PageHandle {
-                            id: page.0, opener_page_id: opener,
+                            id: page.0,
+                            opener_page_id: opener,
                             context: Arc::downgrade(&context.inner),
                             context_guard: Some(context.inner.clone()),
-                            frame_scope: None, sender: weak.upgrade(), worker: None,
+                            frame_scope: None,
+                            sender: weak.upgrade(),
+                            worker: None,
                         };
-                        context.inner.security_origins.lock().unwrap().insert(page, origin.clone().unwrap());
-                        context.inner.document_security.lock().unwrap().insert(page,
-                            policy.clone());
-                        context.inner.document_referrer_policy.lock().unwrap().insert(page, referrer);
-                        context.inner.worker_policies.lock().unwrap().root_isolation.insert(page, isolation);
-                        if context.inner.group.register(PageRegistrationInputs {
-                            handle: handle.clone(), opener_page_id: opener, activate: true,
-                            attention_required: false, document_generation: generation,
-                            native_origin: origin.as_ref().unwrap().security_token_key(),
-                            creator: None, target_name: String::new(), sandbox_navigator: None,
-                            hidden_prerender: false,
-                        }).is_err() {
+                        context
+                            .inner
+                            .security_origins
+                            .lock()
+                            .unwrap()
+                            .insert(page, origin.clone().unwrap());
+                        context
+                            .inner
+                            .document_security
+                            .lock()
+                            .unwrap()
+                            .insert(page, policy.clone());
+                        context
+                            .inner
+                            .document_referrer_policy
+                            .lock()
+                            .unwrap()
+                            .insert(page, referrer);
+                        context
+                            .inner
+                            .worker_policies
+                            .lock()
+                            .unwrap()
+                            .root_isolation
+                            .insert(page, isolation);
+                        if context
+                            .inner
+                            .group
+                            .register(PageRegistrationInputs {
+                                is_popup,
+                                handle: handle.clone(),
+                                opener_page_id: opener,
+                                activate: true,
+                                attention_required: false,
+                                document_generation: generation,
+                                native_origin: origin.as_ref().unwrap().security_token_key(),
+                                creator: None,
+                                target_name: String::new(),
+                                sandbox_navigator: None,
+                                hidden_prerender: false,
+                            })
+                            .is_err()
+                        {
                             let _ = owned.discard_created_auxiliary_root(created_realm);
                             continue;
                         }
-                        state.page_task_terminal_control.bind(context.page_prompt_controller(page).unwrap());
+                        state
+                            .page_task_terminal_control
+                            .bind(context.page_prompt_controller(page).unwrap());
                         Some(handle)
-                    } else { None };
-                    let reserved_context = local_owner.as_ref().map(|context| context.downgrade())
+                    } else {
+                        None
+                    };
+                    let reserved_context = local_owner
+                        .as_ref()
+                        .map(|context| context.downgrade())
                         .unwrap_or(reserved_context);
                     let mut registry = registry().lock().unwrap_or_else(|error| error.into_inner());
                     if registry.contains_key(&route) {

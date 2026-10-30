@@ -811,6 +811,9 @@ pub enum ContextServiceRequest {
         request: StorageRequest,
     },
     OpenPage {
+        /// Window.open feature policy; hyperlink/form creation defaults to false.
+        #[serde(default)]
+        is_popup: bool,
         #[serde(default)]
         hyperlink_audit: Option<oryn_js::navigation::HyperlinkAuditToken>,
         #[serde(default)]
@@ -7059,6 +7062,7 @@ impl ParentContextService {
             }
             ContextServiceRequest::OpenPage {
                 hyperlink_audit,
+                is_popup,
                 local_inventory,
                 link_navigation,
                 user_initiated,
@@ -7406,7 +7410,7 @@ impl ParentContextService {
                     && post.is_none()
                     && let Some(url) = url.as_deref()
                     && let Some(receipt) =
-                        context_owner.claim_blank_prerender(opener_page_id, &creator, None, url)?
+                        context_owner.claim_blank_prerender_with_popup(opener_page_id, &creator, url, is_popup)?
                 {
                     return Ok(ContextServiceResponse::PageOpened {
                         page_id: receipt.page_id,
@@ -7443,18 +7447,20 @@ impl ParentContextService {
                     target_name
                 };
                 let page = if let Some(source) = &document_source {
-                    context_owner.new_named_popup_from_document(
+                    context_owner.new_named_popup_from_document_with_popup(
                         opener_page_id,
                         source,
                         noopener,
                         target_name,
+                        is_popup,
                     )?
                 } else {
-                    self.context_owner()?.new_named_popup_from_creator(
+                    self.context_owner()?.new_named_popup_from_creator_with_popup(
                         opener_page_id,
                         &creator,
                         noopener,
                         target_name,
+                        is_popup,
                     )?
                 };
                 if defer_navigation {
@@ -23689,13 +23695,15 @@ mod selected_navigation_request_tests {
     };
     #[test]
     fn blank_prerender_final_selection_matches_get_url_without_queueing_another_load() {
-        for (method, defer, noopener, matching, form) in [
-            ("GET", false, true, true, true),
-            ("GET", false, true, true, false),
-            ("POST", false, true, true, true),
-            ("GET", true, true, true, true),
-            ("GET", false, false, true, true),
-            ("GET", false, true, false, true),
+        for (method, defer, noopener, matching, form, is_popup) in [
+            ("GET", false, true, true, true, false),
+            ("GET", false, true, true, false, false),
+            ("POST", false, true, true, true, false),
+            ("GET", true, true, true, true, false),
+            ("GET", false, false, true, true, false),
+            ("GET", false, true, false, true, false),
+            ("GET", false, true, true, false, true),
+            ("GET", false, true, true, true, true),
         ] {
             let context = crate::Browser::native_test_with_config(Default::default()).new_context();
             let source = context.new_page();
@@ -23727,6 +23735,7 @@ mod selected_navigation_request_tests {
             let service = ParentContextService::new(context.clone(), id);
             let response = service
                 .handle(ContextServiceRequest::OpenPage {
+                    is_popup,
                     hyperlink_audit: None,
                     local_inventory: Default::default(),
                     link_navigation: false,
@@ -23778,6 +23787,13 @@ mod selected_navigation_request_tests {
                 assert_eq!(receipt.url, candidate_url);
                 assert!(!created);
                 assert!(related_root.is_none());
+                assert!(context.hidden_prerender_page(candidate), "selection must not publish before promotion");
+                context.publish_blank_prerender_page(candidate).unwrap();
+                let owner = context.native_initial_document_creator(candidate).unwrap();
+                assert!(matches!(context.native_platform_query(candidate, owner,
+                    oryn_js::platform_control::Request::WindowState).unwrap(),
+                    oryn_js::platform_control::Response::WindowState { is_popup: actual, .. }
+                    if actual == is_popup));
                 assert!(
                     context
                         .claim_blank_prerender(id, &creator, None, candidate_url)
@@ -23798,8 +23814,8 @@ mod selected_navigation_request_tests {
                 );
             }
             assert!(
-                context.hidden_prerender_page(candidate),
-                "only actor promotion publishes the candidate"
+                context.hidden_prerender_page(candidate) == !(method == "GET" && !defer && noopener && matching),
+                "only explicit promotion publishes the candidate"
             );
             let pending = context.queued_navigation_status(candidate).unwrap();
             assert_eq!(pending.active, 0);
@@ -23826,6 +23842,7 @@ mod selected_navigation_request_tests {
             let service = ParentContextService::new(context.clone(), id);
             let response = service
                 .handle(ContextServiceRequest::OpenPage {
+                    is_popup: false,
                     hyperlink_audit: None,
                     local_inventory: Default::default(),
                     link_navigation: false,
@@ -23906,6 +23923,7 @@ mod selected_navigation_request_tests {
         let service = ParentContextService::new(context.clone(), id);
         let response = service
             .handle(ContextServiceRequest::OpenPage {
+                is_popup: false,
                 hyperlink_audit: None,
                 local_inventory: Default::default(),
                 link_navigation: false,

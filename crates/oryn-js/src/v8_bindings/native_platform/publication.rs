@@ -2301,6 +2301,7 @@ mod tests {
                     0 => Ok(Response::WindowSuspended),
                     1 => Err("temporary transport failure".into()),
                     2 => Ok(Response::WindowState {
+                        is_popup: false,
                         hidden: false,
                         revision: 0,
                     }),

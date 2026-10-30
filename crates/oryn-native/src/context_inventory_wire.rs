@@ -110,6 +110,7 @@ mod tests {
             },
             ContextServiceRequest::OpenPage {
                 hyperlink_audit: None,
+                is_popup: false,
                 local_inventory: inventory,
                 link_navigation: false,
                 user_initiated: false,
@@ -148,11 +149,13 @@ mod tests {
         let ContextServiceRequest::OpenPage {
             local_inventory,
             local_related_navigation,
+            is_popup,
             ..
         } = serde_json::from_str(old_open).unwrap()
         else {
             panic!("open page")
         };
+        assert!(!is_popup, "legacy callers do not request popup UI policy");
         assert!(
             !local_related_navigation,
             "legacy callers retain parent navigation ownership"

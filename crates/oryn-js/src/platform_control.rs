@@ -274,6 +274,8 @@ pub enum Response {
         revision: u64,
     },
     WindowState {
+        #[serde(default)]
+        is_popup: bool,
         hidden: bool,
         revision: u64,
     },

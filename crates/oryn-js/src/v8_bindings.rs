@@ -375,6 +375,7 @@ mod url_statics;
 mod validation;
 mod window_document;
 mod window_status;
+mod window_bars;
 pub mod window_messages;
 pub mod worker_events;
 mod workers;
@@ -17789,6 +17790,14 @@ fn generated_attribute_getter<'s>(
         if let Some(value) = native_navigator::window_get(scope, &state, args.this()) {
             return_value.set(value);
         }
+        return;
+    }
+    if interface == "BarProp" && member == "visible" {
+        window_bars::visible(scope, &state, args, return_value);
+        return;
+    }
+    if interface == "Window" && window_bars::is_member(member) {
+        window_bars::get(scope, &state, args, member, return_value);
         return;
     }
     if interface == "Window" && member == "status" {

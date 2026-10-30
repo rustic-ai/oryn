@@ -1737,6 +1737,7 @@ mod tests {
                 Request::WindowPosition => Response::WindowPosition { x: 0, y: 0 },
                 Request::DocumentFocus => Response::DocumentFocus { focused: true },
                 Request::WindowState => Response::WindowState {
+                    is_popup: false,
                     hidden: false,
                     revision,
                 },
