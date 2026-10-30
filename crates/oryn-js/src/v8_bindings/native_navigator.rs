@@ -49,6 +49,36 @@ pub(super) fn window_get<'s>(
     navigator
 }
 
+/// Bootstrap only: retrieve the already-created native identity without invoking
+/// the public Window getter under an ancestor JavaScript callback's incumbent.
+pub(super) fn installed<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    context: v8::Local<v8::Context>,
+    state: &V8BindingState,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let context = v8::Local::new(scope, context);
+    if state.binding_global != BindingGlobal::Window
+        || context.get_slot::<V8BindingState>()
+            .is_none_or(|owner| owner.instance_id != state.instance_id)
+        || state.execution_retired()
+    {
+        return Err(V8BindingError::Allocation("Navigator bootstrap owner"));
+    }
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let slot = key(scope, "oryn.native.window.navigator");
+    let navigator = context.global(scope).get_private(scope, slot)
+        .and_then(|value| value.try_cast::<v8::Object>().ok())
+        .ok_or(V8BindingError::Allocation("Navigator bootstrap identity"))?;
+    let brand = key(scope, "oryn.native.navigator.brand");
+    let owner = navigator.get_private(scope, brand)
+        .and_then(|value| value.try_cast::<v8::BigInt>().ok())
+        .map(|value| value.u64_value());
+    if owner != Some((state.instance_id, true)) {
+        return Err(V8BindingError::Allocation("Navigator bootstrap brand"));
+    }
+    Ok(navigator)
+}
+
 fn branded(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> bool {
     if object.is_proxy() {
         return false;
@@ -125,6 +155,35 @@ fn service_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap_navigator_ignores_author_shadow_and_requires_exact_owner() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let first = v8::Context::new(handles, Default::default());
+        let second = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, first);
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let owner = install_generated_bindings(scope, first, dom, RealmId(701), 1).unwrap();
+        let native = installed(scope, first, &owner).unwrap();
+        assert!(eval(scope, "Object.defineProperty(window,'navigator',{configurable:true,get(){throw Error('author bootstrap trap')}});true").is_true());
+        assert!(installed(scope, first, &owner).unwrap().strict_equals(native.into()));
+        assert!(installed(scope, second, &owner).is_err());
+        let scope = &mut v8::ContextScope::new(scope, second);
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let other = install_generated_bindings(scope, second, dom, RealmId(702), 1).unwrap();
+        assert!(installed(scope, first, &other).is_err());
+        assert!(installed(scope, second, &owner).is_err());
+        assert!(installed(scope, first, &owner).unwrap().strict_equals(native.into()));
+        let other_native = installed(scope, second, &other).unwrap();
+        let brand = key(scope, "oryn.native.navigator.brand");
+        let wrong = v8::BigInt::new_from_u64(scope, owner.instance_id);
+        other_native.set_private(scope, brand, wrong.into());
+        assert!(installed(scope, second, &other).is_err());
+        owner.retire_execution();
+        assert!(installed(scope, first, &owner).is_err());
+    }
 
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();

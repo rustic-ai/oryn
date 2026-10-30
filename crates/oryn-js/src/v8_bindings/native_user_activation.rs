@@ -66,12 +66,7 @@ pub(super) fn install(
     let state = context
         .get_slot::<V8BindingState>()
         .ok_or(V8BindingError::Allocation("activation owner"))?;
-    let key = v8::String::new(scope, "navigator").unwrap();
-    let navigator = context
-        .global(scope)
-        .get(scope, key.into())
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or(V8BindingError::Allocation("activation Navigator"))?;
+    let navigator = native_navigator::installed(scope, context, &state)?;
     let constructor =
         v8::Function::new(scope, illegal).ok_or(V8BindingError::Allocation("UserActivation"))?;
     let key = v8::String::new(scope, "prototype").unwrap();

@@ -1374,11 +1374,7 @@ pub(super) fn install(
         .get_slot::<V8BindingState>()
         .ok_or_else(|| failure("platform owner unavailable"))?;
     let global = context.global(scope);
-    let name = v8::String::new(scope, "navigator").unwrap();
-    let navigator = global
-        .get(scope, name.into())
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or_else(|| failure("Navigator unavailable"))?;
+    let navigator = native_navigator::installed(scope, context, &state)?;
     let owner = v8::BigInt::new_from_u64(scope, state.instance_id);
     let key = private(scope, "oryn.native.navigator.platform");
     navigator.set_private(scope, key, owner.into());
@@ -2414,7 +2410,18 @@ mod tests {
                     if(!descriptor||!descriptor.enumerable||!descriptor.configurable)return false;
                     if(descriptor.get.name!=='get '+name||descriptor.get.length!==0)return false;
                     if(Object.hasOwn(descriptor.get,'prototype'))return false;
-                    if(descriptor.set!==undefined)return false;
+                    if(name==='navigation'){
+                        if(typeof descriptor.set!=='function'||descriptor.set.name!=='set navigation'||descriptor.set.length!==1)return false;
+                        if(Object.hasOwn(descriptor.set,'prototype'))return false;
+                        try{descriptor.set.call({},'wrong receiver');return false}catch(e){if(!(e instanceof TypeError))return false}
+                        const original=descriptor.get.call(window);
+                        descriptor.set.call(window,'author replacement');
+                        const replaced=Object.getOwnPropertyDescriptor(window,name);
+                        if(!replaced.writable||!replaced.enumerable||!replaced.configurable||replaced.value!=='author replacement')return false;
+                        if(descriptor.get.call(window)!==original)return false;
+                        Object.defineProperty(window,name,descriptor);
+                        if(window.navigation!==original)return false;
+                    }else if(descriptor.set!==undefined)return false;
                 }
                 return document.hidden===false&&document.visibilityState==='visible'
                     &&navigation===window.navigation;

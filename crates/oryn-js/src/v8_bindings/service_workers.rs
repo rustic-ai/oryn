@@ -526,11 +526,16 @@ fn hide_insecure_exposure(
             ));
         }
     }
-    let key = v8::String::new(scope, "navigator")
-        .ok_or(V8BindingError::Allocation("service navigator name"))?;
-    if let Some(navigator) = global
-        .get(scope, key.into())
-        .and_then(|value| value.try_cast::<v8::Object>().ok())
+    let state = context.get_slot::<V8BindingState>()
+        .ok_or(V8BindingError::Allocation("service navigator owner"))?;
+    let navigator = if state.binding_global() == BindingGlobal::Window {
+        Some(native_navigator::installed(scope, context, &state)?)
+    } else {
+        let key = v8::String::new(scope, "navigator")
+            .ok_or(V8BindingError::Allocation("service navigator name"))?;
+        global.get(scope, key.into()).and_then(|value| value.try_cast::<v8::Object>().ok())
+    };
+    if let Some(navigator) = navigator
         && navigator.delete(scope, member.into()) != Some(true)
     {
         return Err(V8BindingError::Allocation(
@@ -572,12 +577,14 @@ pub(super) fn install(
         return hide_insecure_exposure(scope, context);
     }
     install_prototypes(scope, &state, true)?;
-    let key = v8::String::new(scope, "navigator").unwrap();
-    let navigator = context
-        .global(scope)
-        .get(scope, key.into())
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or_else(|| failure("InvalidStateError"))?;
+    let navigator = if state.binding_global() == BindingGlobal::Window {
+        native_navigator::installed(scope, context, &state)?
+    } else {
+        let key = v8::String::new(scope, "navigator").unwrap();
+        context.global(scope).get(scope, key.into())
+            .and_then(|value| value.try_cast::<v8::Object>().ok())
+            .ok_or_else(|| failure("InvalidStateError"))?
+    };
     let container = wrap(scope, &state, Kind::Container)?;
     state.service_workers.borrow_mut().container = Some(stateful_id(scope, container)?);
     if state.binding_global() == BindingGlobal::Window {
