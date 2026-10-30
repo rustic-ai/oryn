@@ -230,35 +230,24 @@ fn deleter(
     v8::Intercepted::kYes
 }
 
-pub(super) fn install(
-    scope: &mut v8::PinScope,
-    context: v8::Local<v8::Context>,
-) -> Result<(), V8BindingError> {
-    let global = context.global(scope);
-    let marker_name = v8::String::new(scope, "oryn.window.named.installed").unwrap();
-    let marker = v8::Private::for_api(scope, Some(marker_name));
-    if global.has_private(scope, marker) == Some(true) {
-        return Ok(());
-    }
+/// Prepublish the native named object before Window's immutable prototype is
+/// materialized. The carrier constructor remains private to this realm.
+pub(super) fn carrier<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    context: v8::Local<'s, v8::Context>,
+    parent: v8::Local<'s, v8::FunctionTemplate>,
+) -> Result<v8::Local<'s, v8::FunctionTemplate>, V8BindingError> {
     let prototype_key = v8::String::new(scope, "prototype").unwrap();
-    let window_key = v8::String::new(scope, "Window").unwrap();
-    let constructor = global
-        .get(scope, window_key.into())
-        .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
-        .ok_or(V8BindingError::Allocation("Window constructor"))?;
-    let window_prototype = constructor
+    let parent_constructor = parent.get_function(scope)
+        .ok_or(V8BindingError::Allocation("Window parent constructor"))?;
+    let event_prototype = parent_constructor
         .get(scope, prototype_key.into())
-        .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
-        .ok_or(V8BindingError::Allocation("Window prototype"))?;
-    // Own global attributes have already been installed from [Global] metadata.
-    // This module owns only the named-properties prototype interceptor.
-    let event_prototype = window_prototype
-        .get_prototype(scope)
         .ok_or(V8BindingError::Allocation("Window parent prototype"))?;
     let template = v8::FunctionTemplate::new(
         scope,
         |_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue| {},
     );
+    template.inherit(parent);
     template.set_class_name(v8::String::new(scope, "WindowProperties").unwrap());
     let instance = template.instance_template(scope);
     instance.set_immutable_proto();
@@ -280,11 +269,49 @@ pub(super) fn install(
     let private_constructor = template
         .get_function(scope)
         .ok_or(V8BindingError::Allocation("Window properties constructor"))?;
-    private_constructor.set(scope, prototype_key.into(), event_prototype);
+    if private_constructor.set(scope, prototype_key.into(), event_prototype) != Some(true) {
+        return Err(V8BindingError::Allocation("Window named parent"));
+    }
     let named = private_constructor
         .new_instance(scope, &[])
         .ok_or(V8BindingError::Allocation("Window named-properties object"))?;
-    if window_prototype.set_prototype(scope, named.into()) != Some(true)
+    if private_constructor.set(scope, prototype_key.into(), named.into()) != Some(true) {
+        return Err(V8BindingError::Allocation("Window named carrier"));
+    }
+    let key = v8::String::new(scope, "oryn.window.named.prepublished")
+        .ok_or(V8BindingError::Allocation("Window named identity"))?;
+    let key = v8::Private::for_api(scope, Some(key));
+    if context.global(scope).set_private(scope, key, named.into()) != Some(true) {
+        return Err(V8BindingError::Allocation("Window named identity"));
+    }
+    Ok(template)
+}
+
+pub(super) fn install(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let global = context.global(scope);
+    let marker_name = v8::String::new(scope, "oryn.window.named.installed").unwrap();
+    let marker = v8::Private::for_api(scope, Some(marker_name));
+    if global.has_private(scope, marker) == Some(true) {
+        return Ok(());
+    }
+    let prototype_key = v8::String::new(scope, "prototype").unwrap();
+    let window_key = v8::String::new(scope, "Window").unwrap();
+    let constructor = global.get(scope, window_key.into())
+        .and_then(|value| value.try_cast::<v8::Object>().ok())
+        .ok_or(V8BindingError::Allocation("Window constructor"))?;
+    let window_prototype = constructor.get(scope, prototype_key.into())
+        .and_then(|value| value.try_cast::<v8::Object>().ok())
+        .ok_or(V8BindingError::Allocation("Window prototype"))?;
+    let key = v8::String::new(scope, "oryn.window.named.prepublished").unwrap();
+    let key = v8::Private::for_api(scope, Some(key));
+    let named = global.get_private(scope, key)
+        .filter(|value| value.is_object())
+        .ok_or(V8BindingError::Allocation("Window named identity"))?;
+    // The immutable parent was established during template construction.
+    if !window_prototype.get_prototype(scope).is_some_and(|value| value.strict_equals(named))
         || !crate::v8_context_bridge::set_global_object_prototype(
             scope,
             context,
@@ -299,6 +326,31 @@ pub(super) fn install(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_prototype_is_immutable_extensible_and_preserves_named_chain() {
+        super::super::tests::check_global_event_prototype_script(r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            const prototype=Window.prototype, named=Object.getPrototypeOf(prototype);
+            check(Object.getPrototypeOf(named)===EventTarget.prototype,'EventTarget parent');
+            check(Object.getPrototypeOf(Window)===EventTarget,'constructor parent');
+            check(prototype.constructor===Window&&named.constructor===EventTarget,'constructor identities');
+            check(Object.isExtensible(prototype),'prototype remains extensible');
+            check(Reflect.setPrototypeOf(prototype,named),'same parent accepted');
+            check(!Reflect.setPrototypeOf(prototype,{}),'different parent rejected');
+            for(const mutate of [()=>Object.setPrototypeOf(prototype,null),()=>{prototype.__proto__={}}]){
+                try{mutate();throw Error('accepted mutation')}
+                catch(error){check(error instanceof TypeError,'prototype mutation TypeError')}
+            }
+            prototype.authorExtension=123;
+            check(window.authorExtension===123,'author extension remains allowed');
+            delete prototype.authorExtension;
+            const element=document.createElement('div');element.id='immutable_named_control';
+            document.body.append(element);check(window.immutable_named_control===element,'live named lookup');
+            element.remove();check(!('immutable_named_control' in window),'live named removal');
+            check(Object.getPrototypeOf(prototype)===named,'parent retained');
+            return true;
+        })()"#);
+    }
     #[test]
     fn window_named_properties_have_own_webidl_string_tag() {
         super::super::tests::check_global_event_prototype_script(

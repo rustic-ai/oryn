@@ -50479,6 +50479,58 @@ fn dom_exception_code(name: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    // Native template construction must preserve an extensible immutable chain.
+    #[test]
+    fn immutable_window_template_can_inherit_a_prepublished_named_object() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let callback = |_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue| {};
+        let event_template = v8::FunctionTemplate::new(scope, callback);
+        let event_constructor = event_template.get_function(scope).unwrap();
+        let prototype_key = v8::String::new(scope, "prototype").unwrap();
+        let event_prototype = event_constructor.get(scope, prototype_key.into()).unwrap();
+        let carrier = v8::FunctionTemplate::new(scope, callback);
+        carrier.inherit(event_template);
+        let instance = carrier.instance_template(scope);
+        instance.set_immutable_proto();
+        let tag = v8::String::new(scope, "WindowProperties").unwrap();
+        instance.set_with_attr(v8::Symbol::get_to_string_tag(scope).into(), tag.into(),
+            v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM);
+        let carrier_constructor = carrier.get_function(scope).unwrap();
+        assert_eq!(carrier_constructor.set(scope, prototype_key.into(), event_prototype), Some(true));
+        let named = carrier_constructor.new_instance(scope, &[]).unwrap();
+        assert!(named.get_prototype(scope).unwrap().strict_equals(event_prototype));
+        assert_eq!(carrier_constructor.set(scope, prototype_key.into(), named.into()), Some(true));
+        let window_template = v8::FunctionTemplate::new(scope, callback);
+        window_template.inherit(carrier);
+        window_template.prototype_template(scope).set_immutable_proto();
+        let window_constructor = window_template.get_function(scope).unwrap();
+        let prototype = window_constructor.get(scope, prototype_key.into()).unwrap().try_cast::<v8::Object>().unwrap();
+        assert!(prototype.get_prototype(scope).unwrap().strict_equals(named.into()),
+            "Inherit must use the carrier's prepublished prototype property");
+        assert_eq!(prototype.set_prototype(scope, named.into()), Some(true));
+        let probe_key = v8::String::new(scope, "probeWindowPrototype").unwrap();
+        assert_eq!(context.global(scope).create_data_property(scope, probe_key.into(), prototype.into()), Some(true));
+        let source = v8::String::new(scope, r#"(()=>{
+            const original=Object.getPrototypeOf(probeWindowPrototype);
+            if(Reflect.setPrototypeOf(probeWindowPrototype,null)!==false)return false;
+            try{Object.setPrototypeOf(probeWindowPrototype,null);return false}
+            catch(error){if(!(error instanceof TypeError))return false}
+            return Object.getPrototypeOf(probeWindowPrototype)===original
+                && Object.isExtensible(probeWindowPrototype);
+        })()"#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        let author_key = v8::String::new(scope, "authorProperty").unwrap();
+        let value = v8::Boolean::new(scope, true);
+        assert_eq!(prototype.create_data_property(scope, author_key.into(), value.into()), Some(true));
+        let constructor_key = v8::String::new(scope, "constructor").unwrap();
+        assert!(prototype.get(scope, constructor_key.into()).unwrap().strict_equals(window_constructor.into()));
+        assert!(named.get(scope, constructor_key.into()).unwrap().strict_equals(event_constructor.into()));
+    }
+
     #[test]
     fn window_navigation_replaceable_setter_keeps_native_controller_identity() {
         check_global_event_prototype_script(r#"(()=>{

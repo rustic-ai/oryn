@@ -610,7 +610,13 @@ pub(super) fn install_interfaces(
                         .get(parent)
                         .ok_or(V8BindingError::MissingInterface(parent))?,
                 );
-                template.inherit(parent);
+                if interface.name == "Window" {
+                    let carrier = window_named::carrier(scope, context, parent)?;
+                    template.inherit(carrier);
+                    template.prototype_template(scope).set_immutable_proto();
+                } else {
+                    template.inherit(parent);
+                }
             }
             let instance = template.instance_template(scope);
             // DOM wrappers carry the realm-local wrapper lease plus the
@@ -1146,7 +1152,9 @@ pub(super) fn install_interfaces(
                 let parent_prototype = parent_constructor
                     .get(scope, prototype_name.into())
                     .ok_or(V8BindingError::Allocation("parent interface prototype"))?;
-                child_prototype.set_prototype(scope, parent_prototype);
+                if interface.name != "Window" {
+                    child_prototype.set_prototype(scope, parent_prototype);
+                }
             }
             let unscopable_members = interface
                 .members
