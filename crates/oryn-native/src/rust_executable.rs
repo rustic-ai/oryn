@@ -36657,6 +36657,22 @@ mod frame_stylesheet_transfer_tests {
     }
 
     #[test]
+    fn parser_rejection_task_follows_interactive_and_precedes_complete() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><body><script>
+            globalThis.rejectionReadiness=[];
+            document.addEventListener('readystatechange',()=>
+                rejectionReadiness.push('readystatechange:'+document.readyState));
+            addEventListener('unhandledrejection',event=>{
+                event.preventDefault();
+                rejectionReadiness.push('unhandledrejection');
+            });
+            Promise.reject(new Error('intentional parser rejection'));
+        </script>"#).unwrap();
+        assert_eq!(page.evaluate("JSON.stringify(rejectionReadiness)").unwrap(),
+            "[\"readystatechange:interactive\",\"unhandledrejection\",\"readystatechange:complete\"]");
+    }
+
+    #[test]
     fn document_readiness_tracks_native_parser_and_load_transitions() {
         let mut page = RustExecutableDocument::load(r#"<!doctype html><body><script>
             globalThis.order=['script:'+document.readyState];

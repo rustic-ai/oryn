@@ -3206,6 +3206,17 @@ impl RustExecutableDocument {
                                 self.frame_script_preparations.push_back(pending);
                                 return Err(error);
                             }
+                            // EOF accepted while resuming this script belongs
+                            // to the same parser task. Publish interactive now,
+                            // before unrelated queued tasks can run. The retained
+                            // completion owns retry progress; no additional input
+                            // or parser byte budget is consumed by publication.
+                            if let Err(error) = pending.finish_xml_completion(self) {
+                                pending.parser_retry =
+                                    Some(std::time::Instant::now() + Duration::from_millis(25));
+                                self.frame_script_preparations.push_back(pending);
+                                return Err(error);
+                            }
                         }
                         Ok(false) => {
                             if job.execution.receipt.is_some() {
