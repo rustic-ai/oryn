@@ -34,6 +34,12 @@ build inputs and nested repositories require separate reconciliation.
 
 1. Identify the component, callers, features, generated inputs, and meaningful regression coverage. See [the component inventory](COMPONENTS.md).
 2. Implement and run focused developer checks while iterating. Use `cargo test -p <package>` and the existing feature/test serialization rules where applicable. A development result is not official qualification.
+   Per the user's October 29 instruction, implement fixes in mid-to-large,
+   dependency-coherent groups before compiling and testing. Use cheap source and
+   generator checks during implementation; avoid expensive build/test cycles for
+   each small edit. Run grouped regression coverage and all required integration
+   gates once the group is ready. Group size never justifies unrelated changes or
+   omitted verification.
 3. Review the integrated batch, generated output, source ownership, and cross-feature effects. Commit before official validation. Account explicitly for ignored effective build inputs, especially the prepared V8 checkout; a clean top-level status alone is insufficient.
 4. Reuse existing CI in `.github/workflows/ci-rust.yml`, JS/extension/E2E workflows, and canonical build/signing scripts. Preserve workspace/default/all-feature coverage and serialized V8 tests. The component inventory is a conservative aid, not a complete compiler dependency analyzer.
 5. Produce one clean-source build, verify it, and seal its executable/runtime dependencies. Run acceptance against that identity without editing or re-signing it. For official qualification, runner/reporting changes require explicit native-input equivalence before reusing native output. Ordinary developer runs reuse the existing binary directly; rebuild when native code or its compiled inputs change.

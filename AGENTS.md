@@ -22,6 +22,13 @@ check scheduling, phase progress, cache reuse and contention. Group coherent edi
 and distinguish compiler time from test execution. Unchanged-artifact diagnostics
 do not replace fresh-worker verification after native inputs change.
 
+The user explicitly requires mid-to-large, dependency-coherent repair groups:
+implement the group before building and testing it. Builds and test execution
+are expensive; do not rebuild after each small edit or accessor. Use cheap source
+and generator checks while implementing, then run grouped regression coverage
+and the required fresh-worker integration gates. Do not combine unrelated changes
+or defer required verification merely to make a group larger.
+
 Carry authorized implementation through required gates, not just a draft or
 future-work promise. Separate committed repairs, diagnostics and qualification.
 Required failures or missing observations keep a batch open. If work stops,

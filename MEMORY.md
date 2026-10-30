@@ -4,6 +4,20 @@ Persistent project notes for future agents. Read with AGENTS.md and the adopted
 workflow. This is project-local memory, not account-wide assistant memory;
 current source, receipts and handover status remain authoritative.
 
+## October 29, 2026: coherent repair groups before expensive verification
+
+The user explicitly instructed: always implement fixes in mid-to-large coherent
+groups, then build and test. Repeated small edits followed by compilation and
+testing consume substantial time and fragment delivery.
+
+Carry-forward execution rule: inventory the related native, IDL/generator,
+caller and lifecycle changes; implement and review the dependency-coherent group
+with cheap source/generation checks first. Then compile and execute grouped
+regressions, followed by required fresh signed-worker integration and affected
+WPT coverage. Avoid a build/test cycle for each small edit. Do not manufacture
+large groups from unrelated changes or weaken required verification. Preserve
+failure evidence and diagnose a failed group before launching the next run.
+
 ## October 26, 2026: scheduling and honest closure
 
 The user challenged verification taking hours. The macOS one-shot launcher had
