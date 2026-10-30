@@ -1392,6 +1392,30 @@ mod tests {
     }
 
     #[test]
+    fn details_roundtrip_before_listener_preserves_closed_to_closed_notification() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body><details id=d></details></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.roundtripEvents=[];
+            const details=document.getElementById('d');
+            details.open=true;
+            details.open=false;
+            details.ontoggle=e=>roundtripEvents.push(e.oldState+'|'+e.newState);
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        collect_slot_notifications(scope).unwrap();
+        state.drain_platform_completions(scope, 32).unwrap();
+        let source = v8::String::new(scope,
+            "roundtripEvents.join(',')==='closed|closed'").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
     fn interrupted_beforetoggle_keeps_operation_and_listener_cursor() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(

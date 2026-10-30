@@ -451,11 +451,52 @@ impl RawV8Host {
             registry.scheduler.advance_to(now_ms);
         }
         let mut delivered = external_delivered;
+        let batch_started = Instant::now();
+        let batch_delivered = delivered;
         // Each page owner pumps its own root and live child frames. Shared
         // standalone roots have independent PageState drivers; polling them
         // here repeats their platform sweep in every sibling's actor turn.
         // Direct standalone host drains retain global scheduling.
         let page_realms = terminal.map(|_| self.active_root_realm_ids());
+        if admit_timers {
+            // Native DOM tasks queued by the preceding script must not become
+            // one privileged poll followed by a timer that overtakes the rest.
+            // Capture a finite budget before callbacks; a keep-alive chain
+            // cannot enlarge this turn. Preserve the existing actor time and
+            // task bounds, and checkpoint each individual completion.
+            let queued = self.binding_states.iter()
+                .filter(|(realm, state)|
+                    page_realms.as_ref().is_none_or(|realms| realms.contains(realm))
+                    && !self.realm_is_parked(**realm) && !state.execution_tasks_stopped())
+                .filter_map(|(realm, state)| self.contexts.get(realm).cloned()
+                    .map(|context| (context, state.clone(), state.queued_platform_task_count())))
+                .collect::<Vec<_>>();
+            for (context, state, budget) in queued {
+                for _ in 0..budget {
+                    if delivered >= 1024 || self.worker_tasks_stopped() || retired()
+                        || state.execution_tasks_stopped()
+                        || (terminal.is_some() && batch_started.elapsed() >= Duration::from_millis(8))
+                    { break; }
+                    let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+                    v8::scope!(let handles, &mut self.isolate);
+                    let context = v8::Local::new(handles, &context);
+                    let scope = &mut v8::ContextScope::new(handles, context);
+                    let completed = state.drain_platform_completions(scope, 1)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if completed == 0 { break; }
+                    delivered += completed;
+                    queue_mutation_observer_microtask(scope);
+                    scope.perform_microtask_checkpoint();
+                    if deadline.expired() || scope.is_execution_terminating() {
+                        scope.cancel_terminate_execution();
+                        reset_mutation_observer_microtask_after_termination(scope);
+                        return Err(HostError::LimitExceeded { resource: "wall time".into() });
+                    }
+                    state.finish_platform_task_checkpoint()
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                }
+            }
+        }
         let input_realms = self
             .binding_states
             .iter()
@@ -520,8 +561,6 @@ impl RawV8Host {
                     .map_err(|error| HostError::Execution(error.to_string()))?
             };
         }
-        let batch_started = Instant::now();
-        let batch_delivered = delivered;
         while delivered < 1024 {
             let _phase = crate::ipc_progress::close_admission::phase("timer_task_admission");
             // Yield only between complete tasks/microtask checkpoints. An
@@ -1316,6 +1355,70 @@ mod tests {
         ));
         host.install_dom(dom, 1).unwrap();
         host
+    }
+
+    #[test]
+    fn details_roundtrip_notification_precedes_following_zero_delay_timer() {
+        let mut host = document_host();
+        host.execute(r#"
+            document.body.innerHTML='<details id=d></details>';
+            globalThis.roundtripOrder=[];
+            const details=document.getElementById('d');
+            details.open=true;
+            details.open=false;
+            details.ontoggle=e=>roundtripOrder.push(e.oldState+'|'+e.newState);
+            __oryn_timer_schedule(()=>roundtripOrder.push('timer'),0,false,[]);
+        "#).unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        host.drain_async_fetches(false).unwrap();
+        assert_eq!(host.evaluate_string("roundtripOrder.join(',')").unwrap(),
+            "closed|closed,timer");
+    }
+
+    #[test]
+    fn queued_details_notifications_precede_following_zero_delay_timer() {
+        let mut host = document_host();
+        host.execute(r#"
+            globalThis.queuedOrder=[];
+            for (const id of ['earlier','roundtrip']) {
+                const details=document.createElement('details');
+                document.body.append(details);
+                details.open=true;
+                if(id==='roundtrip')details.open=false;
+                details.ontoggle=e=>queuedOrder.push(id+'|'+e.oldState+'|'+e.newState);
+            }
+            __oryn_timer_schedule(()=>queuedOrder.push('timer'),0,false,[]);
+        "#).unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        host.drain_async_fetches(false).unwrap();
+        assert_eq!(host.evaluate_string("queuedOrder.join(',')").unwrap(),
+            "earlier|closed|open,roundtrip|closed|closed,timer");
+    }
+
+    #[test]
+    fn queued_dom_task_budget_checkpoints_microtasks_and_does_not_chase_new_chain() {
+        let mut host = document_host();
+        host.execute(r#"
+            globalThis.chainOrder=[];globalThis.chainCount=0;globalThis.timerSnapshot=-1;
+            function queueLink(id) {
+                const details=document.createElement('details');
+                document.body.append(details);
+                details.ontoggle=()=>{
+                    chainCount++;chainOrder.push(id);
+                    Promise.resolve().then(()=>chainOrder.push(id+'-micro'));
+                    if(chainCount<20)queueLink('new');
+                };
+                details.open=true;
+            }
+            queueLink('first');queueLink('second');
+            __oryn_timer_schedule(()=>{
+                timerSnapshot=chainCount;chainOrder.push('timer');
+            },0,false,[]);
+        "#).unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        assert_eq!(host.evaluate_string("chainOrder.slice(0,4).join(',')").unwrap(),
+            "first,first-micro,second,second-micro");
+        assert_eq!(host.evaluate_string("timerSnapshot>=2&&timerSnapshot<20").unwrap(), "true");
     }
 
     #[test]

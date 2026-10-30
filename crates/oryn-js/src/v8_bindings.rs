@@ -4654,6 +4654,12 @@ impl V8BindingState {
         }
     }
     /// Work already queued locally; an outstanding host request is not runnable.
+    /// A scheduling budget only: do not extend it after callbacks enqueue work.
+    pub fn queued_platform_task_count(&self) -> usize {
+        self.deferred_platform_tasks.borrow().len()
+    }
+
+    /// Work already queued locally; an outstanding host request is not runnable.
     pub fn has_ready_platform_work(&self) -> bool {
         html_stream::pending(self)
             || idb_delivery::pending(self)
