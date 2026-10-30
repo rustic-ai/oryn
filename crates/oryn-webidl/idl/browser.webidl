@@ -50,6 +50,8 @@ dictionary TextEncoderEncodeIntoResult {
 [Global=Window, Exposed=Window]
 interface Window : EventTarget {
   readonly attribute boolean isSecureContext;
+  readonly attribute Navigator navigator;
+  [Replaceable] readonly attribute Navigator clientInformation;
   Selection? getSelection();
   [SameObject] readonly attribute CustomElementRegistry customElements;
   unsigned long requestAnimationFrame(FrameRequestCallback callback);
@@ -63,7 +65,7 @@ interface Window : EventTarget {
   [Replaceable] readonly attribute double devicePixelRatio;
   [Replaceable] readonly attribute long outerWidth;
   [Replaceable] readonly attribute long outerHeight;
-  [SameObject] readonly attribute Navigation navigation;
+  [Replaceable] readonly attribute Navigation navigation;
   [SameObject] readonly attribute History history;
   [SameObject] readonly attribute VisualViewport? visualViewport;
   attribute DOMString name;

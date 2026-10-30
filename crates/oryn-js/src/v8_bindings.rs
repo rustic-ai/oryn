@@ -17784,6 +17784,12 @@ fn generated_attribute_getter<'s>(
         }
         return;
     }
+    if interface == "Window" && matches!(member, "navigator" | "clientInformation") {
+        if let Some(value) = native_navigator::window_get(scope, &state, args.this()) {
+            return_value.set(value);
+        }
+        return;
+    }
     if interface == "Window" && member == "customElements" {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "Window.customElements requires a Window receiver");
@@ -18918,6 +18924,9 @@ fn generated_attribute_setter_impl<'s>(
     if metadata.replaceable {
         if interface == "Window" && !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, &format!("Window.{member} requires a Window receiver"));
+            return;
+        }
+        if interface == "Window" && !global_events::check_window_access(scope, &state, args.this()) {
             return;
         }
         let Some(name) = v8::String::new(scope, member) else {
@@ -50470,6 +50479,33 @@ fn dom_exception_code(name: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_navigation_replaceable_setter_keeps_native_controller_identity() {
+        check_global_event_prototype_script(r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            const descriptor=Object.getOwnPropertyDescriptor(window,'navigation');
+            const controller=navigation;
+            check(descriptor.enumerable&&descriptor.configurable,'descriptor flags');
+            check(descriptor.get.name==='get navigation'&&descriptor.get.length===0,'getter metadata');
+            check(descriptor.set.name==='set navigation'&&descriptor.set.length===1,'setter metadata');
+            check(!Object.hasOwn(descriptor.get,'prototype')&&!Object.hasOwn(descriptor.set,'prototype'),'not constructors');
+            let conversions=0;
+            const replacement={toString(){conversions++;throw Error('unexpected conversion')}};
+            for(const receiver of [{},Window.prototype,Object.create(window)]){
+                try{descriptor.set.call(receiver,replacement);throw Error('accepted receiver')}
+                catch(error){check(error instanceof TypeError,'setter brand')}
+            }
+            check(conversions===0&&navigation===controller,'brand failure preserves state');
+            descriptor.set.call(window,replacement);
+            check(window.navigation===replacement&&conversions===0,'replace without coercion');
+            const data=Object.getOwnPropertyDescriptor(window,'navigation');
+            check(data.value===replacement&&data.writable&&data.enumerable&&data.configurable,'replacement descriptor');
+            check(descriptor.get.call(window)===controller,'native identity survives shadow');
+            check(Array.isArray(controller.entries()),'saved native controller remains usable');
+            return true;
+        })()"#);
+    }
+
     #[test]
     fn replaceable_window_attributes_validate_receiver_before_property_replacement() {
         check_global_event_prototype_script(r#"(()=>{

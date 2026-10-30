@@ -87,10 +87,6 @@ pub(super) fn install(
         .get_slot::<V8BindingState>()
         .ok_or_else(|| failure("InvalidStateError"))?;
     let navigator = native_navigator::create(scope, context, &state)?;
-    let name = v8::String::new(scope, "navigator").unwrap();
-    context
-        .global(scope)
-        .create_data_property(scope, name.into(), navigator.into());
     if !origins(scope, &state).is_ok_and(|origins| {
         origins.iter().all(|origin| {
             url::Url::parse(origin).is_ok_and(|url| {
@@ -186,10 +182,6 @@ pub(super) fn install(
         object.into(),
         v8::PropertyAttribute::READ_ONLY,
     );
-    let name = v8::String::new(scope, "navigator").unwrap();
-    context
-        .global(scope)
-        .create_data_property(scope, name.into(), navigator.into());
     Ok(())
 }
 fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

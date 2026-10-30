@@ -1037,9 +1037,17 @@ pub(super) fn install(
     getter.set_name(v8::String::new(scope, &format!("get {}", member.name))
         .ok_or(V8BindingError::Allocation("Window.navigation getter name"))?);
 
+    let setter = v8::Function::builder(generated_attribute_setter)
+        .data(data.into())
+        .length(1)
+        .constructor_behavior(v8::ConstructorBehavior::Throw)
+        .build(scope)
+        .ok_or(V8BindingError::Allocation("Window.navigation setter"))?;
+    setter.set_name(v8::String::new(scope, "set navigation")
+        .ok_or(V8BindingError::Allocation("Window.navigation setter name"))?);
+
     let key = v8::String::new(scope, "navigation").unwrap();
-    let undefined = v8::undefined(scope);
-    let mut descriptor = v8::PropertyDescriptor::new_from_get_set(getter.into(), undefined.into());
+    let mut descriptor = v8::PropertyDescriptor::new_from_get_set(getter.into(), setter.into());
     descriptor.set_enumerable(true);
     descriptor.set_configurable(true);
     let global = scope.get_current_context().global(scope);

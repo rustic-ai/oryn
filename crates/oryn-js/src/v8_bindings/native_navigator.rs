@@ -20,7 +20,33 @@ pub(super) fn create<'s>(
     if navigator.set_private(scope, brand, owner.into()) != Some(true) {
         return Err(V8BindingError::Allocation("Navigator brand"));
     }
+    let slot = key(scope, "oryn.native.window.navigator");
+    if context.global(scope).set_private(scope, slot, navigator.into()) != Some(true) {
+        return Err(V8BindingError::Allocation("Window Navigator identity"));
+    }
     Ok(navigator)
+}
+
+pub(super) fn window_get<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    receiver: v8::Local<'s, v8::Object>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    if state.binding_global != BindingGlobal::Window
+        || !global_events::is_global(scope, state, receiver)
+    {
+        throw_type_error(scope, "Window.navigator requires a Window receiver");
+        return None;
+    }
+    if !global_events::check_window_access(scope, state, receiver) {
+        return None;
+    }
+    let slot = key(scope, "oryn.native.window.navigator");
+    let navigator = receiver.get_private(scope, slot).filter(|value| value.is_object());
+    if navigator.is_none() {
+        throw_type_error(scope, "Window native Navigator is unavailable");
+    }
+    navigator
 }
 
 fn branded(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> bool {
@@ -140,6 +166,67 @@ mod tests {
         if worker {
             service_workers::install_worker_container(scope, context).unwrap();
         }
+    }
+
+    #[test]
+    fn window_navigator_uses_generated_accessor_and_private_identity() {
+        super::super::tests::initialize_v8();
+        for secure in [false, true] {
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let handles, &mut isolate);
+            let context = v8::Context::new(handles, Default::default());
+            let scope = &mut v8::ContextScope::new(handles, context);
+            install(scope, context, secure, false);
+            assert!(eval(scope, r#"(()=>{
+                const object=navigator, original=Navigator;
+                const descriptor=Object.getOwnPropertyDescriptor(window,'navigator');
+                const alias=Object.getOwnPropertyDescriptor(window,'clientInformation');
+                if(!descriptor||descriptor.set!==undefined||!descriptor.enumerable||!descriptor.configurable)return false;
+                if(descriptor.get.name!=='get navigator'||descriptor.get.length!==0||Object.hasOwn(descriptor.get,'prototype'))return false;
+                if(alias.get.name!=='get clientInformation'||alias.set.name!=='set clientInformation')return false;
+                if(clientInformation!==object||descriptor.get.call(window)!==object)return false;
+                for(const receiver of [{},Window.prototype,Object.create(window)]){
+                    for(const get of [descriptor.get,alias.get]){
+                        try{get.call(receiver);return false}catch(error){if(!(error instanceof TypeError))return false}
+                    }
+                }
+                globalThis.Navigator=function replacement(){};
+                const replacement={};clientInformation=replacement;
+                if(clientInformation!==replacement||navigator!==object||alias.get.call(window)!==object)return false;
+                Object.defineProperty(window,'navigator',{value:'author',configurable:true});
+                return descriptor.get.call(window)===object&&object instanceof original;
+            })()"#).is_true());
+        }
+    }
+
+    #[test]
+    fn borrowed_window_navigator_getter_returns_receiver_realm_identity() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let first = v8::Context::new(handles, Default::default());
+        let getter = {
+            let scope = &mut v8::ContextScope::new(handles, first);
+            install(scope, first, true, false);
+            let value = eval(scope, "Object.getOwnPropertyDescriptor(window,'navigator').get");
+            v8::Global::new(scope, value)
+        };
+        let second = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, second);
+        install(scope, second, true, false);
+        let borrowed = v8::Local::new(scope, &getter);
+        let key = v8::String::new(scope, "borrowedNavigatorGetter").unwrap();
+        assert_eq!(second.global(scope).create_data_property(scope, key.into(), borrowed), Some(true));
+        assert!(eval(scope, r#"(()=>{
+            const native=navigator;
+            return borrowedNavigatorGetter.call(window)===native
+                && Object.getPrototypeOf(native)===Navigator.prototype;
+        })()"#).is_true());
+        // Retiring the getter donor must not retire the receiving Window's owner.
+        first.get_slot::<V8BindingState>().unwrap().retire_execution();
+        assert!(eval(scope,
+            "borrowedNavigatorGetter.call(window)===navigator"
+        ).is_true());
     }
 
     #[test]
