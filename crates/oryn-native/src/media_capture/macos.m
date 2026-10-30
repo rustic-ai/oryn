@@ -103,10 +103,21 @@ int oryn_capture_alive(void *opaque){@autoreleasepool{OrynCapture *capture=(__br
 @implementation OrynURLMedia
 -(void)dealloc{[_images cancelAllCGImageGeneration];if(_url)[[NSFileManager defaultManager] removeItemAtURL:_url error:nil];}
 @end
+// AVFoundation's local-file resolver requires a container hint for some valid
+// media (notably WAV). Derive it from admitted bytes, never an author URL/MIME.
+// This is only a resolver hint: AVFoundation must still validate the asset.
+static NSString *OrynURLContainerSuffix(const uint8_t *bytes,size_t length) {
+ if(length>=12&&!memcmp(bytes,"RIFF",4)&&!memcmp(bytes+8,"WAVE",4))return @".wav";
+ if(length>=12&&!memcmp(bytes,"FORM",4)&&(!memcmp(bytes+8,"AIFF",4)||!memcmp(bytes+8,"AIFC",4)))return @".aiff";
+ if(length>=12&&!memcmp(bytes+4,"ftyp",4))return @".mp4";
+ if(length>=8&&!memcmp(bytes,"caff",4))return @".caf";
+ return @"";
+}
 void *oryn_url_media_open(const uint8_t *bytes,size_t length){@autoreleasepool{
  if(!bytes||!length||length>16*1024*1024)return NULL;
- NSString *template=[NSTemporaryDirectory() stringByAppendingPathComponent:@"oryn-media-XXXXXX"];
- char *path=strdup(template.fileSystemRepresentation);if(!path)return NULL;int fd=mkstemp(path);if(fd<0){free(path);return NULL;}
+ NSString *suffix=OrynURLContainerSuffix(bytes,length);
+ NSString *template=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"oryn-media-XXXXXX" stringByAppendingString:suffix]];
+ char *path=strdup(template.fileSystemRepresentation);if(!path)return NULL;int fd=mkstemps(path,(int)suffix.length);if(fd<0){free(path);return NULL;}
  size_t offset=0;while(offset<length){ssize_t count=write(fd,bytes+offset,length-offset);if(count<=0){close(fd);unlink(path);free(path);return NULL;}offset+=(size_t)count;}close(fd);
  OrynURLMedia *value=[OrynURLMedia new];value.url=[NSURL fileURLWithPath:@(path)];free(path);
  value.asset=[AVURLAsset URLAssetWithURL:value.url options:@{AVURLAssetPreferPreciseDurationAndTimingKey:@YES,AVURLAssetReferenceRestrictionsKey:@(AVAssetReferenceRestrictionForbidAll)}];
@@ -116,19 +127,64 @@ void *oryn_url_media_open(const uint8_t *bytes,size_t length){@autoreleasepool{
  if(video){CGSize size=CGSizeApplyAffineTransform(video.naturalSize,video.preferredTransform);double width=fabs(size.width),height=fabs(size.height);if(width<1||height<1||width>8192||height>8192||width*height*4>OrynCaptureLimit)return NULL;value.width=(uint32_t)width;value.height=(uint32_t)height;value.images=[AVAssetImageGenerator assetImageGeneratorWithAsset:value.asset];value.images.appliesPreferredTrackTransform=YES;value.images.requestedTimeToleranceBefore=kCMTimeZero;value.images.requestedTimeToleranceAfter=CMTimeMake(1,30);}
  return (__bridge_retained void *)value;
 }}
-char *oryn_url_media_metadata(void *raw){@autoreleasepool{OrynURLMedia *value=(__bridge OrynURLMedia *)raw;if(!value)return NULL;return OrynJSON(@{@"duration":@(value.duration),@"width":@(value.width),@"height":@(value.height),@"audio":@([value.asset tracksWithMediaType:AVMediaTypeAudio].count>0)});}}
+static NSDictionary *OrynURLAudioFormat(OrynURLMedia *value) {
+ AVAssetTrack *track=[value.asset tracksWithMediaType:AVMediaTypeAudio].firstObject;
+ id description=track.formatDescriptions.firstObject;
+ const AudioStreamBasicDescription *format=description?CMAudioFormatDescriptionGetStreamBasicDescription((__bridge CMAudioFormatDescriptionRef)description):NULL;
+ return @{@"sampleRate":@(format&&isfinite(format->mSampleRate)?format->mSampleRate:0),@"channels":@(format?format->mChannelsPerFrame:0)};
+}
+char *oryn_url_media_metadata(void *raw){@autoreleasepool{OrynURLMedia *value=(__bridge OrynURLMedia *)raw;if(!value)return NULL;NSMutableDictionary *row=[@{@"duration":@(value.duration),@"width":@(value.width),@"height":@(value.height),@"audio":([value.asset tracksWithMediaType:AVMediaTypeAudio].count>0?@YES:@NO)} mutableCopy];[row addEntriesFromDictionary:OrynURLAudioFormat(value)];return OrynJSON(row);}}
+static NSDictionary *OrynURLAudioWindow(OrynURLMedia *value,double start,double until) {
+ if(!value||!isfinite(start)||start<0||!isfinite(until)||until<start||until-start>0.3)return nil;
+ AVAssetTrack *track=[value.asset tracksWithMediaType:AVMediaTypeAudio].firstObject;
+ if(!track||until==start||start>=value.duration)return @{};
+ NSError *error=nil;
+ AVAssetReader *reader=[[AVAssetReader alloc] initWithAsset:value.asset error:&error];
+ if(!reader)return nil;
+ NSDictionary *settings=@{AVFormatIDKey:@(kAudioFormatLinearPCM),AVLinearPCMBitDepthKey:@32,AVLinearPCMIsFloatKey:@YES,AVLinearPCMIsBigEndianKey:@NO,AVLinearPCMIsNonInterleaved:@NO};
+ AVAssetReaderTrackOutput *output=[[AVAssetReaderTrackOutput alloc] initWithTrack:track outputSettings:settings];
+ if(!output||![reader canAddOutput:output])return nil;
+ [reader addOutput:output];
+ reader.timeRange=CMTimeRangeMake(CMTimeMakeWithSeconds(start,60000),CMTimeMakeWithSeconds(MIN(until,value.duration)-start,60000));
+ if(![reader startReading])return nil;
+ NSMutableData *audio=[NSMutableData data];double rate=0;uint32_t channels=0;
+ if(!audio){[reader cancelReading];return nil;}
+ while(reader.status==AVAssetReaderStatusReading){
+  CMSampleBufferRef sample=[output copyNextSampleBuffer];if(!sample)break;
+  const AudioStreamBasicDescription *format=CMAudioFormatDescriptionGetStreamBasicDescription(CMSampleBufferGetFormatDescription(sample));
+  CMBlockBufferRef block=CMSampleBufferGetDataBuffer(sample);size_t length=block?CMBlockBufferGetDataLength(block):0;
+  if(!format||!isfinite(format->mSampleRate)||format->mSampleRate<8000||format->mSampleRate>192000||format->mChannelsPerFrame<1||format->mChannelsPerFrame>8||format->mFormatID!=kAudioFormatLinearPCM||format->mBitsPerChannel!=32||!(format->mFormatFlags&kAudioFormatFlagIsFloat)||length%(format->mChannelsPerFrame*4)||(channels&&(channels!=format->mChannelsPerFrame||rate!=format->mSampleRate))){CFRelease(sample);[reader cancelReading];return nil;}
+  rate=format->mSampleRate;channels=format->mChannelsPerFrame;
+  // Readers may return whole codec packets overlapping the requested interval.
+  // Trim their PCM frames by native timestamps before allocating transfer bytes.
+  double timestamp=CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample));
+  if(!isfinite(timestamp)){CFRelease(sample);[reader cancelReading];return nil;}
+  size_t frameBytes=channels*4,frames=length/frameBytes;
+  size_t first=(size_t)MIN((double)frames,MAX(0,ceil((start-timestamp)*rate)));
+  size_t last=(size_t)MIN((double)frames,MAX(0,ceil((MIN(until,value.duration)-timestamp)*rate)));
+  if(last<=first){CFRelease(sample);continue;}
+  size_t count=(last-first)*frameBytes;
+  if(count>1024*1024-audio.length){CFRelease(sample);[reader cancelReading];return nil;}
+  size_t old=audio.length;[audio increaseLengthBy:count];
+  if(!audio.mutableBytes){CFRelease(sample);[reader cancelReading];return nil;}
+  OSStatus status=CMBlockBufferCopyDataBytes(block,first*frameBytes,count,(uint8_t *)audio.mutableBytes+old);
+  CFRelease(sample);if(status){[reader cancelReading];return nil;}
+ }
+ if(reader.status==AVAssetReaderStatusFailed)return nil;
+ if(!audio.length)return @{};
+ NSString *encoded=[audio base64EncodedStringWithOptions:0];if(!encoded)return nil;
+ return @{@"audio":encoded,@"sampleRate":@(rate),@"channels":@(channels)};
+}
+char *oryn_url_media_audio(void *raw,double start,double until){@autoreleasepool{@try{
+ NSDictionary *row=OrynURLAudioWindow((__bridge OrynURLMedia *)raw,start,until);
+ return row?OrynJSON(row):NULL;
+}@catch(NSException *exception){return NULL;}}}
 char *oryn_url_media_sample(void *raw,double position,double audioStart,double audioUntil){@autoreleasepool{
  OrynURLMedia *value=(__bridge OrynURLMedia *)raw;if(!value||!isfinite(position)||position<0||!isfinite(audioStart)||audioStart<0||!isfinite(audioUntil)||audioUntil<audioStart||audioUntil-audioStart>0.3)return NULL;
- NSMutableDictionary *result=[@{@"timestamp":@(position),@"ended":@(position>=value.duration)} mutableCopy];
+ NSMutableDictionary *result=[@{@"timestamp":@(position),@"ended":(position>=value.duration?@YES:@NO)} mutableCopy];
  if(value.images&&value.duration>0){CMTime actual;NSError *error=nil;double at=MIN(position,MAX(0,value.duration-1.0/600));CGImageRef image=[value.images copyCGImageAtTime:CMTimeMakeWithSeconds(at,60000) actualTime:&actual error:&error];if(!image)return NULL;size_t width=CGImageGetWidth(image),height=CGImageGetHeight(image);if(!width||!height||width>8192||height>8192||width*height*4>OrynCaptureLimit){CGImageRelease(image);return NULL;}NSMutableData *rgba=[NSMutableData dataWithLength:width*height*4];CGColorSpaceRef colors=CGColorSpaceCreateDeviceRGB();CGContextRef context=CGBitmapContextCreate(rgba.mutableBytes,width,height,8,width*4,colors,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);CGColorSpaceRelease(colors);if(!context){CGImageRelease(image);return NULL;}CGContextDrawImage(context,CGRectMake(0,0,width,height),image);CGContextRelease(context);CGImageRelease(image);result[@"width"]=@(width);result[@"height"]=@(height);result[@"data"]=[rgba base64EncodedStringWithOptions:0];}
- AVAssetTrack *track=[value.asset tracksWithMediaType:AVMediaTypeAudio].firstObject;
- if(track&&audioUntil>audioStart&&audioStart<value.duration){NSError *error=nil;AVAssetReader *reader=[[AVAssetReader alloc] initWithAsset:value.asset error:&error];if(!reader)return NULL;
- NSDictionary *settings=@{AVFormatIDKey:@(kAudioFormatLinearPCM),AVLinearPCMBitDepthKey:@32,AVLinearPCMIsFloatKey:@YES,AVLinearPCMIsBigEndianKey:@NO,AVLinearPCMIsNonInterleaved:@NO};
- AVAssetReaderTrackOutput *output=[[AVAssetReaderTrackOutput alloc] initWithTrack:track outputSettings:settings];if(![reader canAddOutput:output])return NULL;[reader addOutput:output];reader.timeRange=CMTimeRangeMake(CMTimeMakeWithSeconds(audioStart,60000),CMTimeMakeWithSeconds(MIN(audioUntil,value.duration)-audioStart,60000));if(![reader startReading])return NULL;
- NSMutableData *audio=[NSMutableData data];double rate=0;uint32_t channels=0;
- while(reader.status==AVAssetReaderStatusReading){CMSampleBufferRef sample=[output copyNextSampleBuffer];if(!sample)break;const AudioStreamBasicDescription *format=CMAudioFormatDescriptionGetStreamBasicDescription(CMSampleBufferGetFormatDescription(sample));CMBlockBufferRef block=CMSampleBufferGetDataBuffer(sample);size_t length=block?CMBlockBufferGetDataLength(block):0;if(!format||format->mChannelsPerFrame==0||format->mChannelsPerFrame>8||length>1024*1024-audio.length){CFRelease(sample);[reader cancelReading];return NULL;}rate=format->mSampleRate;channels=format->mChannelsPerFrame;size_t old=audio.length;[audio increaseLengthBy:length];OSStatus status=CMBlockBufferCopyDataBytes(block,0,length,(uint8_t *)audio.mutableBytes+old);CFRelease(sample);if(status){[reader cancelReading];return NULL;}}
- if(reader.status==AVAssetReaderStatusFailed)return NULL;if(audio.length){result[@"audio"]=[audio base64EncodedStringWithOptions:0];result[@"sampleRate"]=@(rate);result[@"channels"]=@(channels);}
- }
+ NSDictionary *audio=OrynURLAudioWindow(value,audioStart,audioUntil);if(!audio)return NULL;
+ [result addEntriesFromDictionary:audio];
  return OrynJSON(result);
 }}
 void oryn_url_media_close(void *raw){@autoreleasepool{OrynURLMedia *value=(__bridge_transfer OrynURLMedia *)raw;[value.images cancelAllCGImageGeneration];}}
@@ -136,3 +192,4 @@ void oryn_url_media_close(void *raw){@autoreleasepool{OrynURLMedia *value=(__bri
 int oryn_url_media_can_play(const char *mime){@autoreleasepool{if(!mime)return 0;NSString *value=[NSString stringWithUTF8String:mime];return value&&[AVURLAsset isPlayableExtendedMIMEType:value];}}
 
 #include "webm_macos.inc"
+#include "rate_sink_macos.inc"

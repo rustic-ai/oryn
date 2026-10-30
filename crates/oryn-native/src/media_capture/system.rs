@@ -411,6 +411,21 @@ unsafe extern "C" {
     fn oryn_audio_open(rate: f64, channels: u32) -> *mut c_void;
     fn oryn_audio_write(sink: *mut c_void, bytes: *const u8, size: usize, volume: f32) -> i32;
     fn oryn_audio_close(sink: *mut c_void);
+    fn oryn_rate_sink_open(
+        rate: f64,
+        channels: u32,
+        playback_rate: f64,
+        preserves_pitch: i32,
+    ) -> *mut c_void;
+    fn oryn_rate_sink_write(
+        sink: *mut c_void,
+        bytes: *const u8,
+        size: usize,
+        volume: f32,
+        reverse: i32,
+    ) -> i32;
+    fn oryn_rate_sink_audio(sink: *mut c_void, after: u64) -> *mut c_char;
+    fn oryn_rate_sink_close(sink: *mut c_void);
 }
 #[derive(Debug)]
 pub(super) struct AudioSink {
@@ -418,6 +433,7 @@ pub(super) struct AudioSink {
     raw: *mut c_void,
     pub(super) rate: f64,
     pub(super) channels: u32,
+    rate_processing: bool,
 }
 unsafe impl Send for AudioSink {}
 impl AudioSink {
@@ -432,6 +448,7 @@ impl AudioSink {
                 raw,
                 rate,
                 channels,
+                rate_processing: false,
             })
         }
         #[cfg(not(target_os = "macos"))]
@@ -440,10 +457,85 @@ impl AudioSink {
             Err("NotSupportedError: native audio output unavailable".into())
         }
     }
-    pub(super) fn write(&mut self, bytes: &[u8], volume: f32) -> Result<bool, String> {
+    pub(super) fn open_with_rate(
+        rate: f64,
+        channels: u32,
+        playback_rate: f64,
+        preserves_pitch: bool,
+    ) -> Result<Self, String> {
+        if !rate.is_finite()
+            || !(8000.0..=192000.0).contains(&rate)
+            || !(1..=8).contains(&channels)
+            || !playback_rate.is_finite()
+        {
+            return Err("TypeError: invalid audio output configuration".into());
+        }
+        let magnitude = playback_rate.abs();
+        let audible = if preserves_pitch {
+            (1.0 / 32.0..=32.0).contains(&magnitude)
+        } else {
+            (0.25..=4.0).contains(&magnitude)
+        };
+        if !audible {
+            return Err("NotSupportedError: silent rate has no physical sink".into());
+        }
         #[cfg(target_os = "macos")]
         {
-            match unsafe { oryn_audio_write(self.raw, bytes.as_ptr(), bytes.len(), volume) } {
+            let raw = unsafe {
+                oryn_rate_sink_open(rate, channels, playback_rate, i32::from(preserves_pitch))
+            };
+            if raw.is_null() {
+                return Err("NotReadableError: rate audio output unavailable".into());
+            }
+            Ok(Self {
+                raw,
+                rate,
+                channels,
+                rate_processing: true,
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err("NotSupportedError: native rate audio output unavailable".into())
+        }
+    }
+    pub(super) fn write(&mut self, bytes: &[u8], volume: f32) -> Result<bool, String> {
+        self.write_directional(bytes, volume, false)
+    }
+    pub(super) fn write_directional(
+        &mut self,
+        bytes: &[u8],
+        volume: f32,
+        reverse: bool,
+    ) -> Result<bool, String> {
+        if bytes.is_empty()
+            || bytes.len() > 1024 * 1024
+            || !(1..=8).contains(&self.channels)
+            || bytes.len() % (self.channels as usize * 4) != 0
+            || !volume.is_finite()
+            || !(0.0..=1.0).contains(&volume)
+        {
+            return Err("TypeError: invalid audio output window".into());
+        }
+        if reverse && !self.rate_processing {
+            return Err("InvalidStateError: reverse window requires rate sink".into());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let result = unsafe {
+                if self.rate_processing {
+                    oryn_rate_sink_write(
+                        self.raw,
+                        bytes.as_ptr(),
+                        bytes.len(),
+                        volume,
+                        i32::from(reverse),
+                    )
+                } else {
+                    oryn_audio_write(self.raw, bytes.as_ptr(), bytes.len(), volume)
+                }
+            };
+            match result {
                 1 => Ok(true),
                 2 => Ok(false),
                 _ => Err("NotReadableError: native audio output unavailable".into()),
@@ -451,15 +543,35 @@ impl AudioSink {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (bytes, volume);
+            let _ = (bytes, volume, reverse);
             Err("NotSupportedError: native audio output unavailable".into())
+        }
+    }
+    pub(super) fn processed_audio(&mut self, after: u64) -> Result<Value, String> {
+        if !self.rate_processing {
+            return Err("InvalidStateError: sink has no processed PCM observation".into());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            json_result(unsafe { oryn_rate_sink_audio(self.raw, after) })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = after;
+            Err("NotSupportedError: native PCM observation unavailable".into())
         }
     }
 }
 #[cfg(target_os = "macos")]
 impl Drop for AudioSink {
     fn drop(&mut self) {
-        unsafe { oryn_audio_close(self.raw) }
+        unsafe {
+            if self.rate_processing {
+                oryn_rate_sink_close(self.raw)
+            } else {
+                oryn_audio_close(self.raw)
+            }
+        }
     }
 }
 #[cfg(target_os = "macos")]

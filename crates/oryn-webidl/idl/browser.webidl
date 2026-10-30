@@ -1609,6 +1609,9 @@ interface HTMLMediaElement : HTMLElement {
   readonly attribute boolean ended;
   readonly attribute unsigned short readyState;
   attribute double currentTime;
+  attribute double defaultPlaybackRate;
+  attribute double playbackRate;
+  attribute boolean preservesPitch;
   undefined fastSeek(double time);
   readonly attribute boolean seeking;
   [CEReactions] attribute boolean loop;

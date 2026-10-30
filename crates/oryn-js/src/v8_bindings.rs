@@ -35984,6 +35984,9 @@ fn get_attribute_value<'s>(
                 | "seekable"
                 | "played"
                 | "currentTime"
+                | "defaultPlaybackRate"
+                | "playbackRate"
+                | "preservesPitch"
                 | "seeking"
                 | "videoWidth"
                 | "videoHeight"
@@ -38443,6 +38446,9 @@ fn set_attribute_value<'s>(
 
     if interface == "HTMLMediaElement" && member == "currentTime" {
         return media_element::seek(scope, state, node, value);
+    }
+    if interface == "HTMLMediaElement" && matches!(member, "defaultPlaybackRate" | "playbackRate" | "preservesPitch") {
+        return media_element::rate(scope, state, node, member, value);
     }
     if interface == "HTMLMediaElement" && matches!(member, "volume" | "muted") {
         return media_element::volume(scope, state, node, member, value);

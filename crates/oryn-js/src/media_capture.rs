@@ -92,6 +92,9 @@ pub enum Request {
         paused: bool,
         volume: f32,
         seek: bool,
+        playback_rate: f64,
+        preserves_pitch: bool,
+        looping: bool,
     },
     UrlRelease {
         id: String,
@@ -119,4 +122,49 @@ pub enum Response {
     UrlFrame(serde_json::Value),
     UrlSupport(bool),
     UrlPictureInPicture(Option<(u32, u32)>),
+}
+#[cfg(test)]
+mod rate_wire_tests {
+    use super::*;
+    #[test]
+    fn url_samples_carry_explicit_rate_pitch_and_loop_without_legacy_defaults() {
+        for rate in [-2., 0., 2.] {
+            for pitch in [false, true] {
+                for looping in [false, true] {
+                    let request = Request::UrlSample {
+                        id: "owned".into(),
+                        time: 0.5,
+                        paused: false,
+                        volume: 0.5,
+                        seek: false,
+                        playback_rate: rate,
+                        preserves_pitch: pitch,
+                        looping,
+                    };
+                    let row = serde_json::to_value(request).unwrap();
+                    let Request::UrlSample {
+                        playback_rate,
+                        preserves_pitch,
+                        looping: decoded_loop,
+                        ..
+                    } = serde_json::from_value::<Request>(row.clone()).unwrap()
+                    else {
+                        panic!("wrong variant")
+                    };
+                    assert_eq!(
+                        (playback_rate, preserves_pitch, decoded_loop),
+                        (rate, pitch, looping)
+                    );
+                    for field in ["playback_rate", "preserves_pitch", "looping"] {
+                        let mut old = row.clone();
+                        old["UrlSample"].as_object_mut().unwrap().remove(field);
+                        assert!(
+                            serde_json::from_value::<Request>(old).is_err(),
+                            "missing {field} must fail closed"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

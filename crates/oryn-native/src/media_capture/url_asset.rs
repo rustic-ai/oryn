@@ -31,9 +31,12 @@ unsafe extern "C" {
         manifest: *const u8,
         manifest_length: usize,
         mode: u32,
+        diagnostic: *mut *mut c_char,
     ) -> *mut c_void;
     #[cfg(test)]
     fn oryn_webm_decoder_unit_checks() -> i32;
+    #[cfg(test)]
+    fn oryn_webm_opus_unit_checks() -> i32;
     #[cfg(test)]
     fn oryn_webm_unindexed_bounds_check(asset: *mut c_void) -> i32;
     fn oryn_webm_metadata(asset: *mut c_void) -> *mut c_char;
@@ -44,6 +47,7 @@ unsafe extern "C" {
         audio_until: f64,
     ) -> *mut c_char;
     fn oryn_webm_close(asset: *mut c_void);
+    fn oryn_webm_audio(asset: *mut c_void, start: f64, until: f64) -> *mut c_char;
     fn oryn_url_media_open(bytes: *const u8, length: usize) -> *mut c_void;
     fn oryn_url_media_metadata(asset: *mut c_void) -> *mut c_char;
     fn oryn_url_media_sample(
@@ -53,10 +57,34 @@ unsafe extern "C" {
         audio_until: f64,
     ) -> *mut c_char;
     fn oryn_url_media_close(asset: *mut c_void);
+    fn oryn_url_media_audio(asset: *mut c_void, start: f64, until: f64) -> *mut c_char;
     fn oryn_capture_free(value: *mut c_char);
+}
+struct PendingAudio {
+    plan: super::audio_windows::Plan,
+    index: usize,
+    bytes: Option<Vec<u8>>,
+}
+impl PendingAudio {
+    fn acknowledge(&mut self, accepted: bool) -> Option<f64> {
+        if !accepted {
+            return None;
+        }
+        let segment = self.plan.segments().get(self.index)?;
+        let cursor = if segment.reverse {
+            segment.start
+        } else {
+            segment.end
+        };
+        self.bytes = None;
+        self.index += 1;
+        Some(cursor)
+    }
 }
 struct Asset {
     audio: Option<super::decoded_audio::Audio>,
+    duration: f64,
+    audio_format: Option<(u32, u32)>,
     owner: AgentOwner,
     bytes: usize,
     #[cfg(target_os = "macos")]
@@ -64,6 +92,14 @@ struct Asset {
     webm: bool,
     sink: Option<system::AudioSink>,
     last_audio: f64,
+    playback_rate: f64,
+    preserves_pitch: bool,
+    looping: bool,
+    paused: bool,
+    volume: f32,
+    processing_epoch: u64,
+    processing_reset: bool,
+    pending_audio: Option<PendingAudio>,
     pip: Option<String>,
 }
 unsafe impl Send for Asset {}
@@ -105,6 +141,53 @@ fn result(raw: *mut c_char) -> Result<Value, String> {
     unsafe { oryn_capture_free(raw) };
     value
 }
+#[cfg(any(test, target_os = "macos"))]
+fn decode_audio_window(
+    sample: &Value,
+    limit: usize,
+    format: (u32, u32),
+) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let Some(value) = sample.get("audio") else {
+        return Ok(Vec::new());
+    };
+    let encoded = value
+        .as_str()
+        .ok_or("NotReadableError: malformed audio window")?;
+    if !(8000..=192000).contains(&format.0)
+        || !(1..=8).contains(&format.1)
+        || sample["sampleRate"].as_f64() != Some(format.0 as f64)
+        || sample["channels"].as_u64() != Some(format.1 as u64)
+    {
+        return Err("NotReadableError: changed audio window format".into());
+    }
+    if encoded.len() % 4 != 0 || encoded.len() > 1_398_104 {
+        return Err("QuotaExceededError: decoded media audio transfer".into());
+    }
+    let padding = if encoded.ends_with("==") {
+        2
+    } else if encoded.ends_with('=') {
+        1
+    } else {
+        0
+    };
+    let length = (encoded.len() / 4 * 3)
+        .checked_sub(padding)
+        .filter(|length| {
+            *length <= limit && *length <= 1024 * 1024 && *length % (format.1 as usize * 4) == 0
+        })
+        .ok_or("QuotaExceededError: decoded media audio transfer")?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| "QuotaExceededError: decoded media audio transfer")?;
+    bytes.resize(length, 0);
+    let count = base64::engine::general_purpose::STANDARD
+        .decode_slice(encoded, &mut bytes)
+        .map_err(|_| "NotReadableError: malformed audio sample")?;
+    bytes.truncate(count);
+    Ok(bytes)
+}
 impl Registry {
     pub(super) fn open(&mut self, owner: &AgentOwner, bytes: &[u8]) -> Result<Value, String> {
         self.open_mode(owner, bytes, 0)
@@ -142,6 +225,8 @@ impl Registry {
             self.assets.insert(
                 id,
                 Asset {
+                    duration: audio.duration(),
+                    audio_format: Some((audio.rate, audio.channels)),
                     audio: Some(audio),
                     owner: owner.clone(),
                     bytes: retained,
@@ -150,6 +235,14 @@ impl Registry {
                     webm: false,
                     sink: None,
                     last_audio: 0.,
+                    playback_rate: 1.,
+                    preserves_pitch: true,
+                    looping: false,
+                    paused: true,
+                    volume: 1.,
+                    processing_epoch: 1,
+                    processing_reset: false,
+                    pending_audio: None,
                     pip: None,
                 },
             );
@@ -181,6 +274,7 @@ impl Registry {
                                 manifest.as_ptr(),
                                 manifest.len(),
                                 mode,
+                                &mut diagnostic,
                             )
                         } else {
                             oryn_webm_open_diagnostic(
@@ -220,12 +314,22 @@ impl Registry {
             }
             let mut asset = Asset {
                 audio: None,
+                duration: 0.,
+                audio_format: None,
                 owner: owner.clone(),
                 bytes: bytes.len(),
                 raw,
                 webm,
                 sink: None,
                 last_audio: 0.,
+                playback_rate: 1.,
+                preserves_pitch: true,
+                looping: false,
+                paused: true,
+                volume: 1.,
+                processing_epoch: 1,
+                processing_reset: false,
+                pending_audio: None,
                 pip: None,
             };
             let mut metadata = unsafe {
@@ -250,6 +354,25 @@ impl Registry {
             {
                 return Err("QuotaExceededError: decoded media asset inventory".into());
             }
+            asset.duration = metadata["duration"]
+                .as_f64()
+                .filter(|value| value.is_finite() && *value >= 0.)
+                .ok_or("NotReadableError: invalid native media duration")?;
+            if metadata["audio"].as_bool() == Some(true) {
+                let rate = metadata["sampleRate"]
+                    .as_f64()
+                    .filter(|value| {
+                        value.is_finite()
+                            && value.fract() == 0.
+                            && (8000. ..=192000.).contains(value)
+                    })
+                    .ok_or("NotReadableError: invalid native audio format")?;
+                let channels = metadata["channels"]
+                    .as_u64()
+                    .filter(|value| (1..=8).contains(value))
+                    .ok_or("NotReadableError: invalid native audio channels")?;
+                asset.audio_format = Some((rate as u32, channels as u32));
+            }
             asset.bytes = retained;
             metadata.as_object_mut().map(|m| m.remove("retainedBytes"));
             let id = super::id()?;
@@ -267,7 +390,49 @@ impl Registry {
         volume: f32,
         seek: bool,
     ) -> Result<Value, String> {
-        if !time.is_finite() || time < 0. || !volume.is_finite() || !(0.0..=1.).contains(&volume) {
+        self.sample_with_rate(owner, id, time, paused, volume, seek, 1., true)
+    }
+    pub(super) fn sample_with_rate(
+        &mut self,
+        owner: &AgentOwner,
+        id: &str,
+        time: f64,
+        paused: bool,
+        volume: f32,
+        seek: bool,
+        playback_rate: f64,
+        preserves_pitch: bool,
+    ) -> Result<Value, String> {
+        self.sample_with_settings(
+            owner,
+            id,
+            time,
+            paused,
+            volume,
+            seek,
+            playback_rate,
+            preserves_pitch,
+            false,
+        )
+    }
+    pub(super) fn sample_with_settings(
+        &mut self,
+        owner: &AgentOwner,
+        id: &str,
+        time: f64,
+        paused: bool,
+        volume: f32,
+        seek: bool,
+        playback_rate: f64,
+        preserves_pitch: bool,
+        looping: bool,
+    ) -> Result<Value, String> {
+        if !time.is_finite()
+            || time < 0.
+            || !volume.is_finite()
+            || !(0.0..=1.).contains(&volume)
+            || !playback_rate.is_finite()
+        {
             return Err("TypeError: invalid media sample position".into());
         }
         let asset = self
@@ -275,43 +440,140 @@ impl Registry {
             .get_mut(id)
             .filter(|asset| asset.owner == *owner)
             .ok_or("InvalidStateError: foreign or retired media asset")?;
-        if paused || seek {
+        let changed = asset.playback_rate != playback_rate
+            || asset.preserves_pitch != preserves_pitch
+            || asset.looping != looping;
+        let reset = asset.processing_reset
+            || paused != asset.paused
+            || volume != asset.volume
+            || seek
+            || changed;
+        let magnitude = playback_rate.abs();
+        let audible = !paused
+            && if preserves_pitch {
+                (1. / 32. ..=32.).contains(&magnitude)
+            } else {
+                (0.25..=4.).contains(&magnitude)
+            };
+        // Admission precedes epoch/settings mutation and sink retirement. A
+        // blocked plan is reused exactly, regardless of later polling time.
+        let prepared = if audible && (reset || asset.pending_audio.is_none()) {
+            let format = asset
+                .audio
+                .as_ref()
+                .map(|audio| (audio.duration(), audio.rate, audio.channels))
+                .or_else(|| {
+                    asset
+                        .audio_format
+                        .map(|(rate, channels)| (asset.duration, rate, channels))
+                });
+            if let Some((duration, rate, channels)) = format {
+                let cursor = if reset { time } else { asset.last_audio }.clamp(0., duration);
+                let wall = ((time - cursor) / playback_rate + 0.05).max(0.);
+                Some(
+                    super::audio_windows::plan(
+                        cursor,
+                        duration,
+                        playback_rate,
+                        wall,
+                        rate,
+                        channels,
+                        looping,
+                    )
+                    .map_err(|_| "QuotaExceededError: decoded media window plan")?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        // Reset on transitions, not every paused poll. A gain/mute change must
+        // also discard already queued output carrying the previous gain.
+        if reset {
+            asset.processing_epoch = asset
+                .processing_epoch
+                .checked_add(1)
+                .ok_or("QuotaExceededError: audio processing epoch")?;
             asset.sink = None;
             asset.last_audio = time;
+            asset.processing_reset = false;
+            asset.pending_audio = None;
+        }
+        asset.playback_rate = playback_rate;
+        asset.preserves_pitch = preserves_pitch;
+        asset.looping = looping;
+        asset.paused = paused;
+        asset.volume = volume;
+        // Audio-unit capabilities do not restrict the actual HTML clock. Zero
+        // and extreme rates render video at the requested position but silence
+        // audio rather than clamping rate or inventing pitched output.
+        if let Some(plan) = prepared {
+            asset.pending_audio = Some(PendingAudio {
+                plan,
+                index: 0,
+                bytes: None,
+            });
         }
         if let Some(audio) = &asset.audio {
-            let end = time + 0.05;
-            let start = if seek || time > asset.last_audio + 0.25 || time + 0.25 < asset.last_audio
-            {
-                time
-            } else {
-                asset.last_audio
-            };
-            let scale = audio.rate as f64 * audio.channels as f64;
-            let first = ((start * audio.rate as f64).floor() as usize)
-                .saturating_mul(audio.channels as usize)
-                .min(audio.samples.len());
-            let last = ((end * audio.rate as f64).floor() as usize)
-                .saturating_mul(audio.channels as usize)
-                .min(audio.samples.len());
-            if !paused && last > first {
-                if volume > 0. {
-                    if asset.sink.is_none() {
-                        asset.sink =
-                            Some(system::AudioSink::open(audio.rate as f64, audio.channels)?)
+            if audible && let Some(pending) = asset.pending_audio.as_mut() {
+                while let Some(segment) = pending.plan.segments().get(pending.index).copied() {
+                    if volume > 0. {
+                        if pending.bytes.is_none() {
+                            let first = ((segment.start * audio.rate as f64).floor() as usize)
+                                .saturating_mul(audio.channels as usize)
+                                .min(audio.samples.len());
+                            let last = ((segment.end * audio.rate as f64).floor() as usize)
+                                .saturating_mul(audio.channels as usize)
+                                .min(audio.samples.len());
+                            let count = (last - first)
+                                .checked_mul(4)
+                                .filter(|count| {
+                                    *count <= segment.maximum_bytes && *count <= 1024 * 1024
+                                })
+                                .ok_or("QuotaExceededError: decoded media window")?;
+                            let mut bytes = Vec::new();
+                            bytes
+                                .try_reserve_exact(count)
+                                .map_err(|_| "QuotaExceededError: decoded media window")?;
+                            for sample in &audio.samples[first..last] {
+                                bytes.extend_from_slice(&sample.to_le_bytes());
+                            }
+                            pending.bytes = Some(bytes);
+                        }
+                        let bytes = pending.bytes.as_ref().unwrap();
+                        if !bytes.is_empty() {
+                            if asset.sink.is_none() {
+                                asset.sink = Some(system::AudioSink::open_with_rate(
+                                    audio.rate as f64,
+                                    audio.channels,
+                                    playback_rate,
+                                    preserves_pitch,
+                                )?);
+                            }
+                            if !asset.sink.as_mut().unwrap().write_directional(
+                                bytes,
+                                volume,
+                                segment.reverse,
+                            )? {
+                                break;
+                            }
+                        }
                     }
-                    let bytes = audio.samples[first..last]
-                        .iter()
-                        .flat_map(|sample| sample.to_le_bytes())
-                        .collect::<Vec<_>>();
-                    if asset.sink.as_mut().unwrap().write(&bytes, volume)? {
-                        asset.last_audio = last as f64 / scale;
-                    }
-                } else {
-                    asset.last_audio = last as f64 / scale;
+                    // Advance only after accepted physical output (or explicit
+                    // mute). Failed submission retains the exact bytes/index.
+                    asset.last_audio = pending
+                        .acknowledge(true)
+                        .ok_or("InvalidStateError: audio segment custody")?;
+                }
+                if pending.index == pending.plan.segments().len() {
+                    asset.pending_audio = None;
                 }
             }
-            return Ok(serde_json::json!({"timestamp":time,"ended":time>=audio.duration()}));
+            return Ok(
+                serde_json::json!({"timestamp":time,"ended":time>=audio.duration(),
+                "audioPending":asset.pending_audio.is_some()}),
+            );
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -323,72 +585,101 @@ impl Registry {
             if let Some(id) = &asset.pip {
                 super::picture_in_picture::visible(id, true);
             }
-            let until = if paused { time } else { time + 0.05 };
-            let start = if seek || time > asset.last_audio + 0.25 || time + 0.25 < asset.last_audio
-            {
-                time
-            } else {
-                asset.last_audio
-            };
+            // Video is sampled once, with an empty audio interval. Directional
+            // audio reads use the dedicated native APIs and cannot alter GOP state.
             let mut sample = unsafe {
                 result(if asset.webm {
-                    oryn_webm_sample(asset.raw, time, start, until.max(start))
+                    oryn_webm_sample(asset.raw, time, time, time)
                 } else {
-                    oryn_url_media_sample(asset.raw, time, start, until.max(start))
+                    oryn_url_media_sample(asset.raw, time, time, time)
                 })
-            }
-            .map_err(|error| {
-                if asset.webm {
-                    let details = unsafe { result(oryn_webm_metadata(asset.raw)) };
-                    format!("{error}; decoder state: {details:?}")
-                } else {
-                    error
-                }
-            })?;
-            if !paused && let Some(encoded) = sample["audio"].as_str() {
-                use base64::Engine;
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .map_err(|_| "NotReadableError: malformed audio sample")?;
-                let rate = sample["sampleRate"]
-                    .as_f64()
-                    .ok_or("NotReadableError: audio rate")?;
-                let channels = sample["channels"]
-                    .as_u64()
-                    .and_then(|x| u32::try_from(x).ok())
-                    .ok_or("NotReadableError: audio channels")?;
-                if bytes.len() > 1024 * 1024
-                    || !rate.is_finite()
-                    || !(8000.0..=192000.0).contains(&rate)
-                    || channels == 0
-                    || channels > 8
-                    || bytes.len() % (channels as usize * 4) != 0
-                {
-                    return Err("NotReadableError: invalid decoded audio".into());
-                }
-                if volume > 0. {
-                    if asset
-                        .sink
-                        .as_ref()
-                        .is_none_or(|sink| sink.rate != rate || sink.channels != channels)
-                    {
-                        asset.sink = Some(system::AudioSink::open(rate, channels)?)
+            }?;
+            if audible && let Some(pending) = asset.pending_audio.as_mut() {
+                let format = asset
+                    .audio_format
+                    .ok_or("NotReadableError: missing audio format")?;
+                while let Some(segment) = pending.plan.segments().get(pending.index).copied() {
+                    if volume > 0. {
+                        if pending.bytes.is_none() {
+                            let row = unsafe {
+                                result(if asset.webm {
+                                    oryn_webm_audio(asset.raw, segment.start, segment.end)
+                                } else {
+                                    oryn_url_media_audio(asset.raw, segment.start, segment.end)
+                                })
+                            }?;
+                            pending.bytes =
+                                Some(decode_audio_window(&row, segment.maximum_bytes, format)?);
+                        }
+                        let bytes = pending.bytes.as_ref().unwrap();
+                        if !bytes.is_empty() {
+                            if asset.sink.is_none() {
+                                asset.sink = Some(system::AudioSink::open_with_rate(
+                                    format.0 as f64,
+                                    format.1,
+                                    playback_rate,
+                                    preserves_pitch,
+                                )?);
+                            }
+                            if !asset.sink.as_mut().unwrap().write_directional(
+                                bytes,
+                                volume,
+                                segment.reverse,
+                            )? {
+                                break;
+                            }
+                        }
                     }
-                    if asset.sink.as_mut().unwrap().write(&bytes, volume)? {
-                        asset.last_audio = until;
-                    }
-                } else {
-                    asset.last_audio = until;
+                    asset.last_audio = pending
+                        .acknowledge(true)
+                        .ok_or("InvalidStateError: audio segment custody")?;
+                }
+                if pending.index == pending.plan.segments().len() {
+                    asset.pending_audio = None;
                 }
             }
             if let Some(sample) = sample.as_object_mut() {
                 sample.remove("audio");
+                sample.insert(
+                    "audioPending".into(),
+                    Value::Bool(asset.pending_audio.is_some()),
+                );
             }
             if let Some(id) = &asset.pip {
                 super::picture_in_picture::publish(id, &sample)?;
             }
             Ok(sample)
         }
+    }
+    // Internal parent helper only. A public transport still needs native graph
+    // consumer registration and origin-clean media source validation.
+    pub(super) fn processed_audio(
+        &mut self,
+        owner: &AgentOwner,
+        id: &str,
+        after_epoch: u64,
+        after_sequence: u64,
+    ) -> Result<Value, String> {
+        let asset = self
+            .assets
+            .get_mut(id)
+            .filter(|asset| asset.owner == *owner)
+            .ok_or("InvalidStateError: foreign or retired media asset")?;
+        if after_epoch > asset.processing_epoch {
+            return Err("InvalidStateError: future audio processing epoch".into());
+        }
+        let after = if after_epoch == asset.processing_epoch {
+            after_sequence
+        } else {
+            0
+        };
+        let mut sample = if let Some(sink) = asset.sink.as_mut() {
+            sink.processed_audio(after)?
+        } else {
+            serde_json::json!({"pending":true,"sequence":0,"data":""})
+        };
+        sample["processingEpoch"] = Value::from(asset.processing_epoch);
+        Ok(sample)
     }
     pub(super) fn close_picture_in_picture(&mut self, owner: &AgentOwner) {
         for asset in self
@@ -502,6 +793,11 @@ impl Registry {
             .filter(|asset| asset.owner == *owner)
         {
             asset.sink = None;
+            // A resumed sink restarts sequence numbering. Advance its epoch on
+            // next admission even if rate/gain/paused settings stayed identical.
+            // Defer the fallible increment; exhaustion must prohibit reopening.
+            asset.processing_reset = true;
+            asset.pending_audio = None;
             if let Some(id) = &asset.pip {
                 super::picture_in_picture::visible(id, false);
             }
@@ -519,6 +815,185 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_audio_transfer_checks_format_and_size_before_allocation() {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode([1u8; 16]);
+        let row = serde_json::json!({"audio":encoded,"sampleRate":48000,"channels":2});
+        assert_eq!(
+            decode_audio_window(&row, 16, (48000, 2)).unwrap(),
+            vec![1; 16]
+        );
+        assert!(decode_audio_window(&row, 15, (48000, 2)).is_err());
+        assert!(decode_audio_window(&row, 16, (48000, 1)).is_err());
+        assert!(decode_audio_window(&row, 16, (0, 2)).is_err());
+        assert!(
+            decode_audio_window(
+                &serde_json::json!({"audio":"!!!!","sampleRate":48000,"channels":1}),
+                4,
+                (48000, 1)
+            )
+            .is_err()
+        );
+        assert!(decode_audio_window(&serde_json::json!({"audio":null}), 16, (48000, 2)).is_err());
+        assert!(
+            decode_audio_window(&serde_json::json!({}), 0, (48000, 2))
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn rejected_audio_ack_retains_exact_bytes_index_and_direction() {
+        for rate in [32., -32.] {
+            let position = if rate < 0. { 2. } else { 0. };
+            let plan = super::super::audio_windows::plan(position, 2., rate, 0.05, 48000, 2, false)
+                .unwrap();
+            let segment = plan.segments()[0];
+            let mut pending = PendingAudio {
+                plan,
+                index: 0,
+                bytes: Some(vec![1, 2, 3, 4]),
+            };
+            let address = pending.bytes.as_ref().unwrap().as_ptr();
+            assert_eq!(pending.acknowledge(false), None);
+            assert_eq!(pending.index, 0);
+            assert_eq!(pending.bytes.as_ref().unwrap().as_ptr(), address);
+            assert_eq!(pending.bytes.as_deref(), Some(&[1, 2, 3, 4][..]));
+            assert_eq!(
+                pending.acknowledge(true),
+                Some(if rate < 0. {
+                    segment.start
+                } else {
+                    segment.end
+                })
+            );
+            assert_eq!(pending.index, 1);
+            assert!(pending.bytes.is_none());
+        }
+    }
+    #[test]
+    fn audio_processing_epoch_tracks_transitions_and_rejects_exhaustion() {
+        let owner = test_owner(1);
+        let foreign = test_owner(2);
+        let mut registry = Registry::default();
+        registry.assets.insert(
+            "pcm".into(),
+            Asset {
+                duration: 0.004,
+                audio_format: Some((8000, 1)),
+                audio: Some(super::super::decoded_audio::Audio {
+                    rate: 8000,
+                    channels: 1,
+                    samples: vec![0.; 32],
+                }),
+                owner: owner.clone(),
+                bytes: 128,
+                #[cfg(target_os = "macos")]
+                raw: std::ptr::null_mut(),
+                webm: false,
+                sink: None,
+                last_audio: 0.,
+                playback_rate: 1.,
+                preserves_pitch: true,
+                looping: false,
+                paused: true,
+                volume: 1.,
+                processing_epoch: 1,
+                processing_reset: false,
+                pending_audio: None,
+                pip: None,
+            },
+        );
+        for (paused, volume, expected) in [
+            (true, 1., 1),
+            (true, 1., 1),
+            (true, 0., 2),
+            (true, 0., 2),
+            (false, 0., 3),
+            (false, 0., 3),
+            (true, 0., 4),
+        ] {
+            registry
+                .sample_with_rate(&owner, "pcm", 0., paused, volume, false, 1., true)
+                .unwrap();
+            assert_eq!(registry.assets["pcm"].processing_epoch, expected);
+            assert!(
+                registry.assets["pcm"].sink.is_none(),
+                "silent fixture must not open hardware"
+            );
+        }
+        assert!(
+            registry
+                .sample_with_rate(&foreign, "pcm", 0., false, 0., false, 1., true)
+                .is_err()
+        );
+        assert_eq!(registry.assets["pcm"].processing_epoch, 4);
+        registry.suspend_owner(&owner);
+        assert!(registry.assets["pcm"].processing_reset);
+        registry
+            .sample_with_rate(&owner, "pcm", 0., true, 0., false, 1., true)
+            .unwrap();
+        assert_eq!(registry.assets["pcm"].processing_epoch, 5);
+        assert!(!registry.assets["pcm"].processing_reset);
+        registry.assets.get_mut("pcm").unwrap().processing_epoch = u64::MAX;
+        registry.suspend_owner(&owner);
+        assert!(
+            registry
+                .sample_with_rate(&owner, "pcm", 0., true, 0., false, 1., true)
+                .is_err()
+        );
+        let asset = &registry.assets["pcm"];
+        assert_eq!(asset.processing_epoch, u64::MAX);
+        assert!(asset.processing_reset);
+        assert!(asset.paused);
+        assert_eq!(asset.volume, 0.);
+        assert_eq!(asset.playback_rate, 1.);
+        {
+            let asset = registry.assets.get_mut("pcm").unwrap();
+            asset.audio = Some(super::super::decoded_audio::Audio {
+                rate: 192000,
+                channels: 8,
+                samples: vec![0.; 192000 * 8 * 2],
+            });
+            asset.processing_epoch = 7;
+            asset.processing_reset = false;
+        }
+        // The complete source plan exceeds eight admitted buffers. Deny it
+        // before altering gain/rate/paused history or opening physical audio.
+        assert!(
+            registry
+                .sample_with_rate(&owner, "pcm", 0., false, 0., false, 32., true)
+                .unwrap_err()
+                .contains("QuotaExceededError")
+        );
+        let asset = &registry.assets["pcm"];
+        assert_eq!(asset.processing_epoch, 7);
+        assert_eq!(asset.playback_rate, 1.);
+        assert!(asset.paused);
+        assert!(asset.sink.is_none());
+        assert!(asset.pending_audio.is_none());
+        registry.assets.get_mut("pcm").unwrap().audio = Some(super::super::decoded_audio::Audio {
+            rate: 8000,
+            channels: 1,
+            samples: vec![0.; 800],
+        });
+        registry
+            .sample_with_settings(&owner, "pcm", 0.09, false, 0., false, 1., true, true)
+            .unwrap();
+        let asset = &registry.assets["pcm"];
+        assert_eq!(asset.processing_epoch, 8);
+        assert!(asset.looping);
+        assert!((asset.last_audio - 0.04).abs() < 1e-12);
+        assert!(asset.pending_audio.is_none());
+        assert!(asset.sink.is_none(), "muted loop must not open hardware");
+        registry
+            .sample_with_settings(&owner, "pcm", 0.01, false, 0., false, -1., true, true)
+            .unwrap();
+        let asset = &registry.assets["pcm"];
+        assert_eq!(asset.processing_epoch, 9);
+        assert!((asset.last_audio - 0.06).abs() < 1e-12);
+        assert!(asset.pending_audio.is_none());
+    }
     #[test]
     fn foreign_asset_and_invalid_positions_are_rejected_before_decode() {
         let mut registry = Registry::default();
@@ -591,6 +1066,55 @@ pub(super) fn can_play(mime: &str) -> bool {
 #[cfg(all(test, target_os = "macos"))]
 mod decoder_tests {
     use super::*;
+    #[test]
+    fn native_opus_packet_boundaries_preserve_stream_and_tail_discard() {
+        assert_eq!(unsafe { oryn_webm_opus_unit_checks() }, 1);
+    }
+    #[test]
+    fn audio_only_native_wav_window_uses_admitted_range_and_format() {
+        struct Native(*mut c_void);
+        impl Drop for Native {
+            fn drop(&mut self) {
+                unsafe { oryn_url_media_close(self.0) }
+            }
+        }
+        let bytes = wav();
+        let native = Native(unsafe { oryn_url_media_open(bytes.as_ptr(), bytes.len()) });
+        assert!(!native.0.is_null());
+        let metadata = unsafe { result(oryn_url_media_metadata(native.0)) }.unwrap();
+        assert_eq!(metadata["audio"].as_bool(), Some(true));
+        assert_eq!(metadata["sampleRate"].as_f64(), Some(8000.));
+        assert_eq!(metadata["channels"].as_u64(), Some(1));
+        for (start, end) in [(0., 0.05), (0.05, 0.1)] {
+            let row = unsafe { result(oryn_url_media_audio(native.0, start, end)) }.unwrap();
+            assert!(
+                row.get("data").is_none(),
+                "audio-only API must not publish video"
+            );
+            let pcm = decode_audio_window(&row, 1608, (8000, 1)).unwrap();
+            assert_eq!(pcm.len(), 1600);
+            assert!(pcm.iter().all(|byte| *byte == 0));
+        }
+        assert!(unsafe { oryn_url_media_audio(native.0, 0., 0.31) }.is_null());
+        assert!(unsafe { oryn_url_media_audio(native.0, -1., 0.) }.is_null());
+        let frame = unsafe { result(oryn_url_media_sample(native.0, 0., 0., 0.)) }.unwrap();
+        assert_eq!(frame["ended"].as_bool(), Some(false));
+    }
+    #[test]
+    fn native_container_hint_does_not_admit_invalid_media() {
+        for bytes in [
+            b"RIFF\0\0\0\0WAVEinvalid".as_slice(),
+            b"FORM\0\0\0\0AIFFinvalid".as_slice(),
+            b"\0\0\0\x0cftypinvalid".as_slice(),
+            b"caff\0\0\0\0invalid".as_slice(),
+        ] {
+            let native = unsafe { oryn_url_media_open(bytes.as_ptr(), bytes.len()) };
+            if !native.is_null() {
+                unsafe { oryn_url_media_close(native) };
+                panic!("a container hint must not bypass decoder validation");
+            }
+        }
+    }
     fn wav() -> Vec<u8> {
         let samples = 800u32;
         let mut bytes = b"RIFF".to_vec();
@@ -650,6 +1174,7 @@ mod decoder_tests {
         }
     }
     fn pinned_decoder_assertions(mode: u32) {
+        println!("ORYN_MEDIA_DECODER_MODE {mode}");
         use base64::Engine;
         let root = std::env::var_os("ORYN_WPT_ROOT").expect("ORYN_WPT_ROOT is required");
         let bytes =

@@ -161,7 +161,10 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 61;
+// Version 62 requires explicit URL-media rate/pitch/loop transport settings.
+// Older peers can deserialize these as unknown fields and silently play at 1x;
+// reject their envelope rather than treating wire compatibility as semantics.
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 62;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {

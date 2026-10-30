@@ -116,14 +116,16 @@ fn elements(b: &[u8], mut at: usize, end: usize) -> Result<Vec<(u64, usize, usiz
     Ok(out)
 }
 fn uint(b: &[u8]) -> Result<u64> {
-    if b.is_empty() || b.len() > 8 {
+    // EBML numeric elements may encode zero with a zero-length payload.
+    // Field-specific constraints (track IDs, dimensions, scale) remain below.
+    if b.len() > 8 {
         return Err(BAD);
     }
     Ok(b.iter().fold(0, |a, x| (a << 8) | *x as u64))
 }
 fn sint(b: &[u8]) -> Result<i64> {
     let v = uint(b)?;
-    Ok(if b.len() < 8 && b[0] & 128 != 0 {
+    Ok(if !b.is_empty() && b.len() < 8 && b[0] & 128 != 0 {
         (v | (!0u64 << (b.len() * 8))) as i64
     } else {
         v as i64
@@ -131,6 +133,7 @@ fn sint(b: &[u8]) -> Result<i64> {
 }
 fn float(b: &[u8]) -> Result<f64> {
     let f = match b.len() {
+        0 => 0.,
         4 => f32::from_be_bytes(b.try_into().unwrap()) as f64,
         8 => f64::from_be_bytes(b.try_into().unwrap()),
         _ => return Err(BAD),
@@ -465,6 +468,18 @@ pub(super) fn parse(b: &[u8]) -> Result<Movie> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ebml_zero_length_numeric_values_are_zero_without_widening_bounds() {
+        assert_eq!(uint(&[]), Ok(0));
+        assert_eq!(sint(&[]), Ok(0));
+        assert_eq!(float(&[]), Ok(0.));
+        assert_eq!(sint(&[0xff]), Ok(-1));
+        assert!(uint(&[0; 9]).is_err());
+        assert!(sint(&[0; 9]).is_err());
+        assert!(float(&[0; 3]).is_err());
+        assert!(float(&f64::NAN.to_be_bytes()).is_err());
+        assert!(float(&(-1_f64).to_be_bytes()).is_err());
+    }
     #[test]
     fn lacing_signed_timestamps_and_discard_are_preserved() {
         let mut tracks = vec![Track {

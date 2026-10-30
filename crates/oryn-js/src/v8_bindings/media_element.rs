@@ -1,8 +1,24 @@
 //! Native MediaStream-backed media elements; no author track properties are used
 //! for parent capability lookup or decoded frame publication.
 use super::*;
+#[derive(Clone, Copy)]
+struct Rates {
+    playback: f64,
+    default_playback: f64,
+    preserves_pitch: bool,
+}
+impl Default for Rates {
+    fn default() -> Self {
+        Self {
+            playback: 1.,
+            default_playback: 1.,
+            preserves_pitch: true,
+        }
+    }
+}
 #[derive(Default)]
 pub(super) struct Playback {
+    rates: Rates,
     asset: Option<String>,
     duration: f64,
     available: media_time_ranges::Ranges,
@@ -59,6 +75,9 @@ fn played_until(
     if value.played_failed {
         return Err(fail("QuotaExceededError"));
     }
+    if !raw_end.is_finite() || !value.time.is_finite() {
+        return Err(fail("QuotaExceededError"));
+    }
     let mut ranges = value.played.clone();
     if value.asset.is_none()
         || value.stream.is_some()
@@ -73,13 +92,26 @@ fn played_until(
             .insert(start, end)
             .map_err(|_| fail("QuotaExceededError"))
     };
-    if looping && value.duration > 0. && raw_end >= value.duration {
+    if looping && value.duration > 0. && raw_end < 0. {
+        if value.time - raw_end >= value.duration {
+            append(&mut ranges, 0., value.duration)?;
+        } else {
+            append(&mut ranges, 0., value.time)?;
+            append(
+                &mut ranges,
+                raw_end.rem_euclid(value.duration),
+                value.duration,
+            )?;
+        }
+    } else if looping && value.duration > 0. && raw_end >= value.duration {
         if raw_end - value.time >= value.duration {
             append(&mut ranges, 0., value.duration)?;
         } else {
             append(&mut ranges, value.time, value.duration)?;
             append(&mut ranges, 0., raw_end % value.duration)?;
         }
+    } else if raw_end < value.time {
+        append(&mut ranges, raw_end.max(0.), value.time)?;
     } else {
         append(
             &mut ranges,
@@ -114,13 +146,30 @@ fn loops(state: &V8BindingState, node: NodeId) -> Result<bool, V8BindingError> {
 }
 fn clock_position(raw: f64, duration: f64, looping: bool) -> f64 {
     if looping && duration > 0. {
-        raw % duration
+        raw.rem_euclid(duration)
     } else {
-        raw.min(duration)
+        raw.max(0.).min(duration)
     }
 }
+fn raw_position_at(value: &Playback, now: std::time::Instant) -> f64 {
+    value.time
+        + value.anchor.map_or(0., |anchor| {
+            now.saturating_duration_since(anchor).as_secs_f64()
+        }) * value.rates.playback
+}
 pub(super) fn url_reset(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
-    url_reset_for_selection(state, node, false)
+    admit_load_reset(state, node)?;
+    url_reset_for_selection(state, node, false)?;
+    let mut media = state.native_media.borrow_mut();
+    let value = media
+        .playback
+        .get_mut(&node)
+        .ok_or(fail("InvalidStateError"))?;
+    if value.rates.playback != value.rates.default_playback {
+        value.rates.playback = value.rates.default_playback;
+        value.url_events.push_back("ratechange");
+    }
+    Ok(())
 }
 pub(super) fn url_reset_for_selection(
     state: &V8BindingState,
@@ -131,7 +180,19 @@ pub(super) fn url_reset_for_selection(
     reset_admitted_resource(state, node, preserve_play, session)
 }
 pub(super) fn admit_load_reset(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
-    admit_reset(state, node, false).map(|_| ())
+    admit_reset(state, node, false)?;
+    let mut media = state.native_media.borrow_mut();
+    let value = media
+        .playback
+        .get_mut(&node)
+        .ok_or(fail("InvalidStateError"))?;
+    if value.rates.playback != value.rates.default_playback {
+        value
+            .url_events
+            .try_reserve(1)
+            .map_err(|_| V8BindingError::Allocation("media rate reset event"))?;
+    }
+    Ok(())
 }
 pub(super) fn admit_selection_reset(
     state: &V8BindingState,
@@ -266,10 +327,7 @@ pub(super) fn text_track_clock(
     let value = &media.playback[&node];
     let time = if value.asset.is_some() {
         clock_position(
-            value.time
-                + value
-                    .anchor
-                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+            raw_position_at(value, std::time::Instant::now()),
             value.duration,
             loops(state, node)?,
         )
@@ -351,16 +409,16 @@ pub(super) fn track_selection_changed(
                 .map(|id| crate::media_capture::Request::UrlSample {
                     id: id.clone(),
                     time: clock_position(
-                        value.time
-                            + value
-                                .anchor
-                                .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+                        raw_position_at(value, std::time::Instant::now()),
                         value.duration,
                         looping,
                     ),
                     paused: true,
                     volume: 0.,
                     seek: true,
+                    playback_rate: value.rates.playback,
+                    preserves_pitch: value.rates.preserves_pitch,
+                    looping,
                 })
         })
     };
@@ -434,10 +492,7 @@ pub(super) fn get<'s>(
             let looping = loops(state, node)?;
             let media = state.native_media.borrow();
             let value = &media.playback[&node];
-            let raw_end = value.time
-                + value
-                    .anchor
-                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+            let raw_end = raw_position_at(value, std::time::Instant::now());
             played_until(value, raw_end, looping)?
         } else {
             available_ranges(state, node)?
@@ -482,16 +537,16 @@ pub(super) fn get<'s>(
         "seeking" => v8::Boolean::new(scope, value.seeking).into(),
         "muted" => v8::Boolean::new(scope, value.muted).into(),
         "volume" => v8::Number::new(scope, f64::from(value.volume)).into(),
+        "playbackRate" => v8::Number::new(scope, value.rates.playback).into(),
+        "defaultPlaybackRate" => v8::Number::new(scope, value.rates.default_playback).into(),
+        "preservesPitch" => v8::Boolean::new(scope, value.rates.preserves_pitch).into(),
         "paused" => v8::Boolean::new(scope, value.paused).into(),
         "readyState" => v8::Integer::new(scope, i32::from(value.ready)).into(),
         "currentTime" => v8::Number::new(
             scope,
             if value.asset.is_some() {
                 clock_position(
-                    value.time
-                        + value
-                            .anchor
-                            .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+                    raw_position_at(value, std::time::Instant::now()),
                     value.duration,
                     loops(state, node)?,
                 )
@@ -538,9 +593,9 @@ pub(super) fn set(
             .map_err(|_| V8BindingError::Allocation("media aborted promises"))?;
     }
     media_resource::cancel(state, node)?;
-    url_reset(state, node)?;
+    url_reset_for_selection(state, node, false)?;
     stop_outputs(scope, state, node)?;
-    let (session, volume, muted) = {
+    let (session, volume, muted, rates) = {
         let media = state.native_media.borrow();
         let old = &media.playback[&node];
         (
@@ -549,6 +604,7 @@ pub(super) fn set(
                 .ok_or(fail("QuotaExceededError"))?,
             old.volume,
             old.muted,
+            old.rates,
         )
     };
     let old = state
@@ -558,6 +614,7 @@ pub(super) fn set(
         .insert(
             node,
             Playback {
+                rates,
                 stream,
                 session,
                 paused: true,
@@ -598,10 +655,7 @@ pub(super) fn call<'s>(
             }
             if playback.stream.is_none() {
                 let looping = loops(state, node)?;
-                let raw_end = playback.time
-                    + playback
-                        .anchor
-                        .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+                let raw_end = raw_position_at(playback, std::time::Instant::now());
                 // Retain the admitted snapshot: a later clock sample could cross
                 // an interval-capacity boundary after physical output stopped.
                 Some((raw_end, played_until(playback, raw_end, looping)?))
@@ -680,7 +734,11 @@ pub(super) fn call<'s>(
         if loaded {
             if first {
                 if playback.ended {
-                    playback.time = 0.;
+                    playback.time = if playback.rates.playback < 0. {
+                        playback.duration
+                    } else {
+                        0.
+                    };
                     playback.ended = false;
                 }
                 playback.anchor = Some(std::time::Instant::now());
@@ -990,6 +1048,85 @@ fn stop_outputs(
     }
     Ok(())
 }
+pub(super) fn rate(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    member: &str,
+    input: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
+    ensure(state, node)?;
+    let pitch = member == "preservesPitch";
+    let number = if pitch {
+        None
+    } else {
+        let number = input
+            .number_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        if !number.is_finite() {
+            return Err(fail("TypeError"));
+        }
+        Some(number)
+    };
+    // ToNumber may replace or adopt native ownership; never revive discarded state.
+    if state.execution_retired()
+        || state.dom.borrow().node_document(node).ok().flatten() != Some(state.document_root())
+    {
+        return Err(fail("InvalidStateError"));
+    }
+    let looping = loops(state, node)?;
+    let now = std::time::Instant::now();
+    let mut media = state.native_media.borrow_mut();
+    let value = media
+        .playback
+        .get_mut(&node)
+        .ok_or_else(|| fail("InvalidStateError"))?;
+    let changed = match member {
+        "preservesPitch" => value.rates.preserves_pitch != input.boolean_value(scope),
+        "playbackRate" => value.rates.playback != number.unwrap(),
+        "defaultPlaybackRate" => value.rates.default_playback != number.unwrap(),
+        _ => return Err(fail("unsupported media rate attribute")),
+    };
+    if !changed {
+        return Ok(());
+    }
+    let old_end = raw_position_at(value, now);
+    if !old_end.is_finite() {
+        return Err(fail("QuotaExceededError"));
+    }
+    // Admit all native state and event storage before mutating the clock. The
+    // paired parent transport must recreate its effect history on rate/pitch
+    // changes, and carry these actual settings on the next UrlSample request.
+    let played = if member == "playbackRate" {
+        Some(played_until(value, old_end, looping)?)
+    } else {
+        None
+    };
+    if !pitch {
+        reserve_url_events(value, 1)?;
+    }
+    match member {
+        "preservesPitch" => value.rates.preserves_pitch = input.boolean_value(scope),
+        "defaultPlaybackRate" => value.rates.default_playback = number.unwrap(),
+        "playbackRate" => {
+            value.played = played.unwrap();
+            if value.anchor.is_some() {
+                value.time = clock_position(old_end, value.duration, looping);
+                value.anchor = Some(now);
+            }
+            value.rates.playback = number.unwrap();
+        }
+        _ => unreachable!(),
+    }
+    if !pitch {
+        value.url_events.push_back("ratechange");
+    }
+    value.seek_sampled = false;
+    Ok(())
+}
 pub(super) fn volume(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -1226,6 +1363,14 @@ pub(super) fn url_decoded(
         .as_u64()
         .and_then(|x| u32::try_from(x).ok())
         .ok_or(fail("NotReadableError"))?;
+    let looping = loops(state, node)?;
+    let rates = state
+        .native_media
+        .borrow()
+        .playback
+        .get(&node)
+        .ok_or(fail("InvalidStateError"))?
+        .rates;
     let first = native_platform::media_request(
         state,
         crate::media_capture::Request::UrlSample {
@@ -1234,6 +1379,9 @@ pub(super) fn url_decoded(
             paused: true,
             volume: 0.,
             seek: true,
+            playback_rate: rates.playback,
+            preserves_pitch: rates.preserves_pitch,
+            looping,
         },
     );
     if !matches!(first, Ok(crate::media_capture::Response::UrlFrame(_))) {
@@ -1321,6 +1469,9 @@ fn url_pause(
                 paused: true,
                 volume: 0.,
                 seek: true,
+                playback_rate: value.rates.playback,
+                preserves_pitch: value.rates.preserves_pitch,
+                looping,
             })
     };
     if let Some(request) = request {
@@ -1357,10 +1508,7 @@ pub(super) fn seek(
         .playback
         .get_mut(&node)
         .ok_or_else(|| fail("InvalidStateError"))?;
-    let old_end = value.time
-        + value
-            .anchor
-            .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+    let old_end = raw_position_at(value, std::time::Instant::now());
     let played = played_until(value, old_end, looping)?;
     let seek_serial = value
         .seek_serial
@@ -1419,20 +1567,18 @@ fn poll_url(
     if delivered_seeking || state.execution_retired() || state.execution_suspended() {
         return Ok(changed);
     }
-    let (id, time, paused, volume, seek, already, duration) = {
+    let (id, time, paused, volume, seek, already, duration, rates) = {
         let media = state.native_media.borrow();
         let value = &media.playback[&node];
         (
             value.asset.clone(),
-            value.time
-                + value
-                    .anchor
-                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64()),
+            raw_position_at(value, std::time::Instant::now()),
             value.paused,
             if value.muted { 0. } else { value.volume },
             value.seeking,
             value.seek_sampled,
             value.duration,
+            value.rates,
         )
     };
     let Some(id) = id else { return Ok(changed) };
@@ -1463,7 +1609,10 @@ fn poll_url(
             && value.last_timeupdate.is_none_or(|last| {
                 now.duration_since(last) >= std::time::Duration::from_millis(250)
             });
-        let ended = !paused && position >= duration && !looping;
+        let ended = !paused
+            && !looping
+            && ((rates.playback > 0. && position >= duration)
+                || (rates.playback < 0. && position <= 0.));
         reserve_url_events(
             value,
             usize::from(seek) * 2 + usize::from(timeupdate) + usize::from(ended) * 3,
@@ -1477,7 +1626,12 @@ fn poll_url(
             time: position,
             paused,
             volume,
-            seek: seek || position < time,
+            // Loop audio is already split by the parent plan; a clock wrap must
+            // not discard its queued continuation. Video detects its own GOP reset.
+            seek,
+            playback_rate: rates.playback,
+            preserves_pitch: rates.preserves_pitch,
+            looping,
         },
     )?
     else {
@@ -1637,10 +1791,7 @@ pub(super) fn suspend(state: &V8BindingState, suspended: bool) {
             continue;
         }
         if suspended {
-            let raw_end = value.time
-                + value.anchor.map_or(0., |anchor| {
-                    now.saturating_duration_since(anchor).as_secs_f64()
-                });
+            let raw_end = raw_position_at(value, now);
             // Suspension has no author exception channel. Keep capacity failure
             // sticky so later played reads fail rather than publish partial ranges.
             let Ok(looping) = loops(state, *node) else {
@@ -1838,6 +1989,73 @@ mod url_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     #[test]
+    fn rate_scaled_clock_and_reverse_played_ranges_share_native_time() {
+        let now = std::time::Instant::now();
+        let mut value = Playback {
+            asset: Some("native".into()),
+            duration: 10.,
+            time: 1.,
+            paused: false,
+            anchor: Some(now - std::time::Duration::from_secs(2)),
+            ..Default::default()
+        };
+        value.rates.playback = -1.;
+        assert_eq!(raw_position_at(&value, now), -1.);
+        assert_eq!(clock_position(-1., 10., true), 9.);
+        assert_eq!(clock_position(-1., 10., false), 0.);
+        let ranges = played_until(&value, -1., true).unwrap();
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges.interval(0).unwrap(), (0., 1.));
+        assert_eq!(ranges.interval(1).unwrap(), (9., 10.));
+        value.rates.playback = 0.;
+        assert_eq!(raw_position_at(&value, now), 1.);
+        assert_eq!(played_until(&value, 1., true).unwrap().len(), 0);
+        assert_eq!(
+            played_until(&value, -11., true)
+                .unwrap()
+                .interval(0)
+                .unwrap(),
+            (0., 10.)
+        );
+    }
+    #[test]
+    fn generated_media_rates_load_and_srcobject_preserve_native_settings() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(
+            eval(
+                scope,
+                r#"globalThis.v=document.getElementById('v');
+            v.playbackRate===1 && v.defaultPlaybackRate===1 && v.preservesPitch===true"#
+            )
+            .is_true()
+        );
+        assert!(
+            eval(
+                scope,
+                r#"v.playbackRate=2;v.defaultPlaybackRate=-3;v.preservesPitch=false;
+            v.srcObject=null;v.playbackRate===2 && v.defaultPlaybackRate===-3 && !v.preservesPitch"#
+            )
+            .is_true()
+        );
+        assert!(
+            eval(
+                scope,
+                r#"v.load();v.playbackRate===-3 && v.defaultPlaybackRate===-3 && !v.preservesPitch"#
+            )
+            .is_true()
+        );
+    }
+    #[test]
     fn media_event_admission_checks_exact_capacity_and_overflow() {
         let mut value = Playback::default();
         value.url_events.resize(510, "timeupdate");
@@ -1934,7 +2152,13 @@ mod url_tests {
         }
         super::super::tests::initialize_v8();
         for (retire, operation) in [false, true].into_iter().flat_map(|retire| {
-            ["v.fastSeek(input)", "v.volume=input"].map(|operation| (retire, operation))
+            [
+                "v.fastSeek(input)",
+                "v.volume=input",
+                "v.playbackRate=input",
+                "v.defaultPlaybackRate=input",
+            ]
+            .map(|operation| (retire, operation))
         }) {
             let mut isolate = v8::Isolate::new(Default::default());
             v8::scope!(let scope, &mut isolate);

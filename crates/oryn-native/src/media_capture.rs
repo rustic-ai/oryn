@@ -4,6 +4,7 @@ mod decoded_audio;
 pub(crate) mod picture_in_picture;
 mod system;
 mod url_asset;
+mod audio_windows;
 mod webm;
 use crate::agent_registry::AgentOwner;
 use base64::Engine;
@@ -324,9 +325,12 @@ impl Registry {
                 paused,
                 volume,
                 seek,
+                playback_rate,
+                preserves_pitch,
+                looping,
             } => self
                 .urls
-                .sample(owner, &id, time, paused, volume, seek)
+                .sample_with_settings(owner, &id, time, paused, volume, seek, playback_rate, preserves_pitch, looping)
                 .map(Response::UrlFrame),
             Request::UrlRelease { id } => {
                 self.urls.release(owner, &id)?;
