@@ -189,6 +189,9 @@ pub(super) fn promise<'s>(
         let window = new_platform_object(scope, state, "PictureInPictureWindow", id)?;
         let global = v8::Global::new(scope, window);
         let pending = v8::Global::new(scope, resolver);
+        // Reserve the media refresh checkpoint before enabling physical PiP or
+        // consuming activation. The subsequent publication performs no allocation.
+        media_element::admit_picture_in_picture_refresh(state, node)?;
         let response = native_platform::media_request(
             state,
             Request::UrlPictureInPicture {
@@ -747,7 +750,13 @@ mod tests {
   })()"#).is_true());
         scope.perform_microtask_checkpoint();
         assert!(eval(scope, "emptyExit==='InvalidStateError'").is_true());
-        assert!(eval(scope, "badReceiverResults.length===3&&badReceiverResults.every(Boolean)").is_true());
+        assert!(
+            eval(
+                scope,
+                "badReceiverResults.length===3&&badReceiverResults.every(Boolean)"
+            )
+            .is_true()
+        );
         assert!(backend.commands.lock().unwrap().is_empty());
         assert!(!*backend.open.lock().unwrap());
         eval(

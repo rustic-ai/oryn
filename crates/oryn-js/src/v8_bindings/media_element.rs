@@ -37,6 +37,20 @@ fn fail(name: &str) -> V8BindingError {
         member: name.into(),
     }
 }
+fn reserve_url_events(value: &mut Playback, count: usize) -> Result<(), V8BindingError> {
+    if value
+        .url_events
+        .len()
+        .checked_add(count)
+        .is_none_or(|length| length > 512)
+    {
+        return Err(V8BindingError::Allocation("media event bound"));
+    }
+    value
+        .url_events
+        .try_reserve(count)
+        .map_err(|_| V8BindingError::Allocation("media event storage"))
+}
 fn played_until(
     value: &Playback,
     raw_end: f64,
@@ -113,7 +127,29 @@ pub(super) fn url_reset_for_selection(
     node: NodeId,
     preserve_play: bool,
 ) -> Result<(), V8BindingError> {
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
     ensure(state, node)?;
+    // Admit generation and promise custody before clearing the visible resource.
+    let session = {
+        let mut media = state.native_media.borrow_mut();
+        let value = media
+            .playback
+            .get_mut(&node)
+            .ok_or(fail("InvalidStateError"))?;
+        let session = value
+            .session
+            .checked_add(1)
+            .ok_or(fail("QuotaExceededError"))?;
+        if !preserve_play {
+            value
+                .aborted
+                .try_reserve(value.pending.len())
+                .map_err(|_| V8BindingError::Allocation("media aborted promises"))?;
+        }
+        session
+    };
     state
         .dom
         .borrow_mut()
@@ -136,10 +172,7 @@ pub(super) fn url_reset_for_selection(
     if !preserve_play {
         value.url_events.clear();
     }
-    value.session = value
-        .session
-        .checked_add(1)
-        .ok_or(fail("QuotaExceededError"))?;
+    value.session = session;
     if !preserve_play {
         value.paused = true;
         value.aborted.append(&mut value.pending);
@@ -441,9 +474,6 @@ pub(super) fn set(
     node: NodeId,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
-    ensure(state, node)?;
-    media_resource::cancel(state, node)?;
-    url_reset(state, node)?;
     let stream = if value.is_null() {
         None
     } else {
@@ -451,6 +481,27 @@ pub(super) fn set(
         native_media::stream_tracks(scope, state, object)?;
         Some(v8::Global::new(scope, object))
     };
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
+    ensure(state, node)?;
+    // Both reset generations must fit before canceling the old resource.
+    state.native_media.borrow().playback[&node]
+        .session
+        .checked_add(2)
+        .ok_or(fail("QuotaExceededError"))?;
+    {
+        let mut media = state.native_media.borrow_mut();
+        let old = media
+            .playback
+            .get_mut(&node)
+            .ok_or(fail("InvalidStateError"))?;
+        old.aborted
+            .try_reserve(old.pending.len())
+            .map_err(|_| V8BindingError::Allocation("media aborted promises"))?;
+    }
+    media_resource::cancel(state, node)?;
+    url_reset(state, node)?;
     stop_outputs(scope, state, node)?;
     let (session, volume, muted) = {
         let media = state.native_media.borrow();
@@ -494,10 +545,35 @@ pub(super) fn call<'s>(
     node: NodeId,
     member: &str,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
     ensure(state, node)?;
     if member == "pause" {
+        let prepared = {
+            let mut media = state.native_media.borrow_mut();
+            let playback = media
+                .playback
+                .get_mut(&node)
+                .ok_or(fail("InvalidStateError"))?;
+            if !playback.paused {
+                reserve_url_events(playback, 2)?;
+            }
+            if playback.stream.is_none() {
+                let looping = loops(state, node)?;
+                let raw_end = playback.time
+                    + playback
+                        .anchor
+                        .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
+                // Retain the admitted snapshot: a later clock sample could cross
+                // an interval-capacity boundary after physical output stopped.
+                Some((raw_end, played_until(playback, raw_end, looping)?))
+            } else {
+                None
+            }
+        };
         stop_outputs(scope, state, node)?;
-        url_pause(state, node)?;
+        url_pause(state, node, prepared)?;
         let pending = {
             let mut media = state.native_media.borrow_mut();
             let playback = media.playback.get_mut(&node).unwrap();
@@ -518,12 +594,32 @@ pub(super) fn call<'s>(
     }
     let resolver = v8::PromiseResolver::new(scope).ok_or(fail("allocation"))?;
     let promise = resolver.get_promise(scope);
+    {
+        let mut media = state.native_media.borrow_mut();
+        let playback = media
+            .playback
+            .get_mut(&node)
+            .ok_or(fail("InvalidStateError"))?;
+        if playback.pending.len() >= 64 {
+            return Err(fail("QuotaExceededError"));
+        }
+        playback
+            .pending
+            .try_reserve(1)
+            .map_err(|_| V8BindingError::Allocation("media play promises"))?;
+        let first = playback.paused;
+        let count = usize::from(first)
+            + usize::from(first && playback.ready < 3)
+            + usize::from(if playback.stream.is_none() {
+                playback.asset.is_some()
+            } else {
+                playback.ready >= 3
+            });
+        reserve_url_events(playback, count)?;
+    }
     state.dom.borrow_mut().set_showing_poster(node, false)?;
     let mut media = state.native_media.borrow_mut();
     let playback = media.playback.get_mut(&node).unwrap();
-    if playback.pending.len() >= 64 {
-        return Err(fail("QuotaExceededError"));
-    }
     if playback.stream.is_none() {
         let first = playback.paused;
         playback.paused = false;
@@ -659,6 +755,7 @@ fn poll_one(
         let pending = {
             let mut media = state.native_media.borrow_mut();
             let value = media.playback.get_mut(&node).unwrap();
+            reserve_url_events(value, 1)?;
             value.ended = true;
             value.paused = true;
             std::mem::take(&mut value.pending)
@@ -681,6 +778,16 @@ fn poll_one(
             )
         {
             continue;
+        }
+        {
+            let mut media = state.native_media.borrow_mut();
+            let value = media
+                .playback
+                .get_mut(&node)
+                .ok_or(fail("InvalidStateError"))?;
+            if value.ready == 0 {
+                reserve_url_events(value, 4)?;
+            }
         }
         let after = sequences.get(&track.id).copied().unwrap_or(0);
         let crate::media_capture::Response::Sample(sample) = native_platform::media_request(
@@ -844,6 +951,9 @@ pub(super) fn volume(
     member: &str,
     input: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if state.execution_retired() {
+        return Err(fail("InvalidStateError"));
+    }
     ensure(state, node)?;
     let volume = if member == "muted" {
         None
@@ -856,19 +966,29 @@ pub(super) fn volume(
         }
         Some(value as f32)
     };
+    // ToNumber may run author code and discard the native playback record.
+    if state.execution_retired()
+        || state.dom.borrow().node_document(node).ok().flatten() != Some(state.document_root())
+    {
+        return Err(fail("InvalidStateError"));
+    }
     let mut media = state.native_media.borrow_mut();
-    let playback = media.playback.get_mut(&node).unwrap();
+    let playback = media
+        .playback
+        .get_mut(&node)
+        .ok_or(fail("InvalidStateError"))?;
     let changed = if let Some(volume) = volume {
-        let changed = playback.volume != volume;
-        playback.volume = volume;
-        changed
+        playback.volume != volume
     } else {
-        let value = input.boolean_value(scope);
-        let changed = playback.muted != value;
-        playback.muted = value;
-        changed
+        playback.muted != input.boolean_value(scope)
     };
     if changed {
+        reserve_url_events(playback, 1)?;
+        if let Some(volume) = volume {
+            playback.volume = volume;
+        } else {
+            playback.muted = input.boolean_value(scope);
+        }
         playback.url_events.push_back("volumechange");
     }
     Ok(())
@@ -895,9 +1015,7 @@ fn event(
         .playback
         .get_mut(&node)
         .ok_or(fail("InvalidStateError"))?;
-    if value.url_events.len() >= 512 {
-        return Err(V8BindingError::Allocation("media event bound"));
-    }
+    reserve_url_events(value, 1)?;
     value.url_events.push_back(name);
     Ok(())
 }
@@ -1090,7 +1208,15 @@ pub(super) fn url_decoded(
     let old = {
         let mut media = state.native_media.borrow_mut();
         let value = media.playback.get_mut(&node).unwrap();
-        if autoplay && (value.muted || state.has_sticky_user_activation()) {
+        let automatic = autoplay && (value.muted || state.has_sticky_user_activation());
+        let events =
+            usize::from(automatic && value.paused) + usize::from(automatic || !value.paused);
+        if let Err(error) = reserve_url_events(value, events) {
+            drop(media);
+            media_resource::release_asset(state, id);
+            return Err(error);
+        }
+        if automatic {
             if value.paused {
                 value.url_events.push_back("play");
             }
@@ -1119,7 +1245,11 @@ pub(super) fn url_decoded(
     }
     Ok(())
 }
-fn url_pause(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+fn url_pause(
+    state: &V8BindingState,
+    node: NodeId,
+    prepared: Option<(f64, media_time_ranges::Ranges)>,
+) -> Result<(), V8BindingError> {
     let looping = loops(state, node)?;
     let request = {
         let mut media = state.native_media.borrow_mut();
@@ -1128,11 +1258,8 @@ fn url_pause(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError>
             return Ok(());
         }
         if !value.paused {
-            let raw_end = value.time
-                + value
-                    .anchor
-                    .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
-            record_played_until(value, raw_end, looping)?;
+            let (raw_end, played) = prepared.ok_or(fail("InvalidStateError"))?;
+            value.played = played;
             if value.anchor.take().is_some() {
                 value.time = clock_position(raw_end, value.duration, looping);
             }
@@ -1173,7 +1300,9 @@ pub(super) fn seek(
     }
     // Numeric conversion can execute author code and retire or replace native
     // ownership. Never revive a retired owner or unwrap its discarded record.
-    if state.execution_retired() {
+    if state.execution_retired()
+        || state.dom.borrow().node_document(node).ok().flatten() != Some(state.document_root())
+    {
         return Err(fail("InvalidStateError"));
     }
     let looping = loops(state, node)?;
@@ -1186,11 +1315,17 @@ pub(super) fn seek(
         + value
             .anchor
             .map_or(0., |anchor| anchor.elapsed().as_secs_f64());
-    record_played_until(value, old_end, looping)?;
-    value.seek_serial = value
+    let played = played_until(value, old_end, looping)?;
+    let seek_serial = value
         .seek_serial
         .checked_add(1)
         .ok_or(fail("QuotaExceededError"))?;
+    let hide_poster = value.ready > 0;
+    if hide_poster {
+        reserve_url_events(value, 1)?;
+    }
+    value.played = played;
+    value.seek_serial = seek_serial;
     value.time = if value.asset.is_some() {
         time.max(0.).min(value.duration)
     } else {
@@ -1198,7 +1333,6 @@ pub(super) fn seek(
     };
     value.anchor = (!value.paused).then(std::time::Instant::now);
     value.ended = false;
-    let hide_poster = value.ready > 0;
     if hide_poster {
         value.seeking = true;
         value.seek_sampled = false;
@@ -1271,6 +1405,25 @@ fn poll_url(
         .attribute_in_null_namespace(node, "loop")?
         .is_some();
     let position = clock_position(time, duration, looping);
+    let now = std::time::Instant::now();
+    let (played, timeupdate, ended) = {
+        let mut media = state.native_media.borrow_mut();
+        let value = media
+            .playback
+            .get_mut(&node)
+            .ok_or(fail("InvalidStateError"))?;
+        let played = played_until(value, time, looping)?;
+        let timeupdate = !paused
+            && value.last_timeupdate.is_none_or(|last| {
+                now.duration_since(last) >= std::time::Duration::from_millis(250)
+            });
+        let ended = !paused && position >= duration && !looping;
+        reserve_url_events(
+            value,
+            usize::from(seek) * 2 + usize::from(timeupdate) + usize::from(ended) * 3,
+        )?;
+        (played, timeupdate, ended)
+    };
     let crate::media_capture::Response::UrlFrame(frame) = native_platform::media_request(
         state,
         crate::media_capture::Request::UrlSample {
@@ -1327,23 +1480,20 @@ fn poll_url(
     let mut media = state.native_media.borrow_mut();
     let value = media.playback.get_mut(&node).unwrap();
     value.seek_sampled = true;
-    record_played_until(value, time, looping)?;
+    value.played = played;
     if seek {
         value.seeking = false;
         value.url_events.push_back("timeupdate");
         value.url_events.push_back("seeked");
     }
     if !paused {
-        if value
-            .last_timeupdate
-            .is_none_or(|last| last.elapsed() >= std::time::Duration::from_millis(250))
-        {
-            value.last_timeupdate = Some(std::time::Instant::now());
+        if timeupdate {
+            value.last_timeupdate = Some(now);
             value.url_events.push_back("timeupdate");
         }
         value.time = position;
-        value.anchor = Some(std::time::Instant::now());
-        if position >= duration && !looping {
+        value.anchor = Some(now);
+        if ended {
             value.ended = true;
             value.paused = true;
             value.anchor = None;
@@ -1494,6 +1644,17 @@ pub(super) fn picture_in_picture_asset(
         .map(|track| track.id)
         .ok_or(fail("InvalidStateError"))
 }
+pub(super) fn admit_picture_in_picture_refresh(
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    if let Some(value) = state.native_media.borrow_mut().playback.get_mut(&node)
+        && value.asset.is_some()
+    {
+        reserve_url_events(value, 1)?;
+    }
+    Ok(())
+}
 pub(super) fn picture_in_picture_refresh(state: &V8BindingState, node: NodeId) {
     if let Some(value) = state.native_media.borrow_mut().playback.get_mut(&node)
         && value.asset.is_some()
@@ -1518,6 +1679,11 @@ fn flush_events(state: &V8BindingState) -> Result<(), V8BindingError> {
             if media.events.len() >= 512 {
                 return Err(V8BindingError::Allocation("media event bound"));
             }
+            // Keep the source checkpoint until destination custody is admitted.
+            media
+                .events
+                .try_reserve(1)
+                .map_err(|_| V8BindingError::Allocation("media event storage"))?;
             let value = media.playback.get_mut(&node).unwrap();
             value.url_events.pop_front();
             let session = value.session;
@@ -1626,7 +1792,84 @@ mod url_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     #[test]
-    fn seek_author_conversion_cannot_revive_retired_or_discarded_playback() {
+    fn media_event_admission_checks_exact_capacity_and_overflow() {
+        let mut value = Playback::default();
+        value.url_events.resize(510, "timeupdate");
+        assert!(reserve_url_events(&mut value, 2).is_ok());
+        assert_eq!(value.url_events.len(), 510);
+        assert!(reserve_url_events(&mut value, 3).is_err());
+        assert!(reserve_url_events(&mut value, usize::MAX).is_err());
+        value.url_events.resize(512, "timeupdate");
+        assert!(reserve_url_events(&mut value, 0).is_ok());
+        assert!(reserve_url_events(&mut value, 1).is_err());
+    }
+
+    #[test]
+    fn rejected_media_operations_preserve_resource_clock_and_event_custody() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let node = dom.borrow().find_by_id("v").unwrap();
+        ensure(&state, node).unwrap();
+        {
+            let mut media = state.native_media.borrow_mut();
+            let value = media.playback.get_mut(&node).unwrap();
+            value.asset = Some("preserved-resource".into());
+            value.duration = 20.;
+            value.time = 7.;
+            value.ready = 3;
+            value.paused = false;
+            value.url_events.resize(512, "timeupdate");
+        }
+        let input = v8::Number::new(scope, 0.5);
+        assert!(volume(scope, &state, node, "volume", input.into()).is_err());
+        let input = v8::Boolean::new(scope, true);
+        assert!(volume(scope, &state, node, "muted", input.into()).is_err());
+        let input = v8::Number::new(scope, 12.);
+        assert!(seek(scope, &state, node, input.into()).is_err());
+        assert!(call(scope, &state, node, "pause").is_err());
+        assert!(call(scope, &state, node, "play").is_err());
+        let invalid = v8::Object::new(scope);
+        assert!(set(scope, &state, node, invalid.into()).is_err());
+        {
+            let media = state.native_media.borrow();
+            let value = &media.playback[&node];
+            assert_eq!(value.asset.as_deref(), Some("preserved-resource"));
+            assert_eq!(value.time, 7.);
+            assert_eq!(value.volume, 1.);
+            assert!(!value.muted);
+            assert!(!value.paused);
+            assert!(!value.seeking);
+            assert_eq!(value.seek_serial, 0);
+            assert_eq!(value.url_events.len(), 512);
+            assert!(value.pending.is_empty());
+        }
+        state
+            .native_media
+            .borrow_mut()
+            .playback
+            .get_mut(&node)
+            .unwrap()
+            .session = u64::MAX;
+        assert!(url_reset(&state, node).is_err());
+        let null = v8::null(scope);
+        assert!(set(scope, &state, node, null.into()).is_err());
+        let media = state.native_media.borrow();
+        let value = &media.playback[&node];
+        assert_eq!(value.session, u64::MAX);
+        assert_eq!(value.asset.as_deref(), Some("preserved-resource"));
+        assert_eq!(value.time, 7.);
+    }
+    #[test]
+    fn media_author_conversion_cannot_revive_retired_or_discarded_playback() {
         fn invalidate(
             scope: &mut v8::PinScope,
             args: v8::FunctionCallbackArguments,
@@ -1644,7 +1887,9 @@ mod url_tests {
             }
         }
         super::super::tests::initialize_v8();
-        for retire in [false, true] {
+        for (retire, operation) in [false, true].into_iter().flat_map(|retire| {
+            ["v.fastSeek(input)", "v.volume=input"].map(|operation| (retire, operation))
+        }) {
             let mut isolate = v8::Isolate::new(Default::default());
             v8::scope!(let scope, &mut isolate);
             let context = v8::Context::new(scope, Default::default());
@@ -1669,7 +1914,8 @@ mod url_tests {
                     &format!(
                         r#"
                 globalThis.v=document.getElementById('v');
-                (()=>{{try{{v.fastSeek({{valueOf(){{invalidatePlayback({retire});return 7}}}})}}
+                (()=>{{const input={{valueOf(){{invalidatePlayback({retire});return 0.5}}}};
+                try{{{operation}}}
                 catch(e){{return e.name==='InvalidStateError'}}return false}})()
             "#
                     )
@@ -1685,6 +1931,52 @@ mod url_tests {
                 assert!(!state.native_media.borrow().playback.contains_key(&node));
             }
         }
+    }
+    #[test]
+    fn media_dispatch_full_destination_preserves_source_checkpoint() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<video id=v></video>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let node = dom.borrow().find_by_id("v").unwrap();
+        ensure(&state, node).unwrap();
+        {
+            let mut media = state.native_media.borrow_mut();
+            media
+                .playback
+                .get_mut(&node)
+                .unwrap()
+                .url_events
+                .extend(["seeking", "seeked"]);
+            for _ in 0..511 {
+                media.events.push_back(EventTask {
+                    node,
+                    session: 0,
+                    epoch: state.document_stream_epoch(),
+                    name: "timeupdate",
+                    event: None,
+                });
+            }
+        }
+        assert!(flush_events(&state).is_err());
+        let media = state.native_media.borrow();
+        assert_eq!(media.events.len(), 512);
+        assert_eq!(media.events.back().unwrap().name, "seeking");
+        assert_eq!(
+            media.playback[&node]
+                .url_events
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            ["seeked"]
+        );
     }
     #[test]
     fn time_ranges_borrowed_getter_uses_native_receiver_realm() {
