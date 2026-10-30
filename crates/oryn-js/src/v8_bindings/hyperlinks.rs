@@ -202,6 +202,21 @@ mod tests {
 
     #[test]
     fn reflected_resource_urls_share_document_encoding_and_ping_remains_a_string() {
+        #[derive(Default)]
+        struct ReflectionHost(RefCell<Vec<String>>);
+        impl PlatformHost for ReflectionHost {
+            fn retire(&self) {}
+            fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
+                if let PlatformHostRequest::ImageStart { request, .. } = request {
+                    self.0.borrow_mut().push(request.url);
+                    Ok(())
+                } else {
+                    Err("unexpected reflected resource host request".into())
+                }
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn drain_completions(&self, _: usize) -> Vec<PlatformHostCompletion> { Vec::new() }
+        }
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
             oryn_dom::html::parse("<body>").into_runtime().unwrap(),
@@ -213,6 +228,8 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.commit_location("https://example.test/path").unwrap();
+        let host = Rc::new(ReflectionHost::default());
+        state.set_platform_host(host.clone());
         for (encoding, suffix) in [
             ("windows-1251", "%26%23255%3B"),
             ("windows-1252", "%FF"),

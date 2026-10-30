@@ -1892,6 +1892,7 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  Promise<undefined> decode();
   [CEReactions, Reflect] attribute boolean controls;
   [CEReactions] attribute DOMString decoding;
   [CEReactions, Reflect] attribute unsigned long hspace;

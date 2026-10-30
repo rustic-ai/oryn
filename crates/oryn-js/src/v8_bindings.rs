@@ -125,6 +125,8 @@ mod owned_store_context;
 mod idb_v8_store_sequence;
 mod keypath_binding_conversion;
 mod keypath_decode;
+mod image_resource_decode;
+mod image_decode_promises;
 mod keypath_encoding;
 mod names_mutation_prepare;
 #[path = "navigation_api.rs"]
@@ -3119,6 +3121,10 @@ type SharedRangeSelections = Rc<RefCell<Vec<RcWeak<Cell<Option<u64>>>>>>;
 pub struct DomLifecycleCheckpoint(pub fn(&mut v8::PinScope)->Result<(),V8BindingError>);
 
 pub fn checkpoint_dom_lifecycle(scope: &mut v8::PinScope) {
+    if let Err(error) = image_decode_promises::checkpoint(scope) {
+        throw_binding_error(scope, &error);
+        return;
+    }
     if let Err(error) = oryn_dom::drain_tracked_node_leases() {
         throw_binding_error(scope, &error.into());
         return;
@@ -5521,9 +5527,8 @@ impl V8BindingState {
                         video_poster::complete(self, node, &bytes)?;
                         return Ok(());
                     }
-                    match image::load_from_memory(&bytes) {
-                        Ok(image) => {
-                            let rgba = image.to_rgba8();
+                    match image_resource_decode::raster(&bytes) {
+                        Ok(rgba) => {
                             self.dom.borrow_mut().set_image_intrinsics(node, None)?;
                             self.dom.borrow_mut().set_image_dimensions(
                                 node,
@@ -19246,6 +19251,13 @@ fn generated_operation_impl<'s>(
         return;
     };
     let member = metadata.name;
+    if interface == "HTMLImageElement" && member == "decode" {
+        match image_decode_promises::decode(scope, args.this()) {
+            Ok(promise) => return_value.set(promise.into()),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if matches!(interface,"FontFace"|"FontFaceSet") {
         let result=(||{
             let (state,_)=font_loading::font_receiver(scope,args.this(),interface)?;
@@ -47029,11 +47041,19 @@ fn attribute_resource_changed(
     }
     let tag = {
         let dom = state.dom.borrow();
-        if !dom.is_connected(node)? {
-            return Ok(());
-        }
         match &dom.arena().get(node)?.kind {
             NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
+                // HTML images load in a fully active owner Document even when
+                // detached. Source changes in a detached picture also reselect
+                // its images, without enabling detached scripts/frames/links.
+                let detached_image = name.local.as_ref() == "img"
+                    || (name.local.as_ref() == "source"
+                        && dom.parent(node)?.is_some_and(|parent| {
+                            dom.is_element(parent, "http://www.w3.org/1999/xhtml", "picture")
+                        }));
+                if !dom.is_connected(node)? && !detached_image {
+                    return Ok(());
+                }
                 name.local.to_string()
             }
             _ => return Ok(()),
@@ -47379,6 +47399,7 @@ fn dispatch_image_event(
     node: NodeId,
     success: bool,
 ) -> Result<(), V8BindingError> {
+    image_decode_promises::terminal(scope, state, node, success)?;
     if state.execution_retired()
         || state.dom.borrow().node_document(node).ok().flatten() != Some(state.document_root())
     {
@@ -47422,7 +47443,8 @@ fn document_has_image_candidates(
                 && matches!(name.local.as_ref(), "img" | "input" | "video"))
                 || (name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == "image"))
             && dom.node_document(id)? == Some(state.document_root())
-            && dom.is_connected(id)?
+            && (dom.is_connected(id)?
+                || dom.is_element(id, "http://www.w3.org/1999/xhtml", "img"))
         {
             return Ok(true);
         }
@@ -47439,6 +47461,31 @@ pub fn prepare_document_images(
     // selection/request custody needs a fresh receipt after layout completes.
     let _retained_scope = state.enter_retained_allocation(scope)?;
     prepare_dynamic_image_subtree(scope, state, state.document_root())?;
+    // Detached images are native loader participants too. Revisit them on
+    // lifecycle selection (including deferred admission), using their exact
+    // owner Document rather than author-visible tree connectivity.
+    let detached = {
+        let dom = state.dom.borrow();
+        let mut cursor = 0;
+        let mut images = Vec::new();
+        let mut check = || {
+            if crate::v8_termination::checkpoint(scope) { Ok(()) }
+            else { Err(DomError::ProjectionCancelled) }
+        };
+        while let Some((id, _)) = dom.arena().next_with_checkpoint(&mut cursor, &mut check)? {
+            if dom.is_element(id, "http://www.w3.org/1999/xhtml", "img")
+                && dom.node_document(id)? == Some(state.document_root())
+                && !dom.is_connected(id)?
+            {
+                images.try_reserve(1).map_err(|_| V8BindingError::Allocation("detached image selection"))?;
+                images.push(id);
+            }
+        }
+        images
+    };
+    for image in detached {
+        prepare_dynamic_image_subtree(scope, state, image)?;
+    }
     state
         .image_selection_cursor
         .set(state.dom.borrow().mutation_cursor().0);
@@ -47622,6 +47669,89 @@ pub fn publish_embedded_image(
     })
 }
 
+struct NativeImageSelection {
+    key: ImageRequestKey,
+    source: String,
+    url: Option<Url>,
+}
+
+fn selected_native_image_request(
+    scope: &mut v8::PinScope, state: &Rc<V8BindingState>, node: NodeId,
+) -> Result<Option<NativeImageSelection>, V8BindingError> {
+    let (mut source, cross_origin, referrer_policy, mut upgrade_mixed_image) = {
+        let dom = state.dom.borrow();
+        let poster = dom.is_element(node, "http://www.w3.org/1999/xhtml", "video");
+        let svg_image = dom.is_element(node, "http://www.w3.org/2000/svg", "image");
+        let image_enabled = poster || svg_image
+            || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img")
+            || dom
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("image"));
+        (
+            (if svg_image {
+                dom.attribute_in_null_namespace(node, "href")?
+                    .or(dom.attribute_ns(node, Some("http://www.w3.org/1999/xlink"), "href")?)
+            } else {
+                dom.attribute_in_null_namespace(node, if poster { "poster" } else { "src" })?
+            })
+                .filter(|_| image_enabled)
+                .map(str::to_owned),
+            if poster {
+                None
+            } else {
+                dom.attribute_in_null_namespace(node, "crossorigin")?
+                    .map(str::to_owned)
+            },
+            dom.attribute_in_null_namespace(node, "referrerpolicy")?
+                .map(str::to_owned),
+            (poster || svg_image || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img"))
+                && dom
+                    .attribute_in_null_namespace(node, "srcset")?
+                    .is_none_or(|value| value.trim().is_empty())
+                && !dom.parent(node)?.is_some_and(|parent| {
+                    dom.is_element(parent, "http://www.w3.org/1999/xhtml", "picture")
+                }),
+        )
+    };
+    let mut density = 1.;
+    if state
+        .dom
+        .borrow()
+        .is_element(node, "http://www.w3.org/1999/xhtml", "img")
+    {
+        let (selected, selected_density, responsive, source_node) =
+            responsive_images::source(scope, state, node)?;
+        let hints = responsive_images::source_dimensions(state, source_node)?;
+        state.dom.borrow_mut().set_image_source_size(node, hints)?;
+        source = selected;
+        density = selected_density;
+        upgrade_mixed_image &= !responsive;
+    }
+    // Responsive selection runs its own scoped provider admissions; their
+    // Drop deliberately invalidates earlier receipts. Re-admit request
+    // publication from this exact image document's current context.
+    let _retained_scope = state.enter_retained_allocation(scope)?;
+    let Some(source) = source else { return Ok(None); };
+    let base = state.native_document_base_url(true)?;
+    let resolved = state.native_document_resource_url(&source).ok();
+    let key = ImageRequestKey {
+        density_bits: density.to_bits(),
+        upgrade_mixed_image,
+        source: resolved
+            .as_ref()
+            .map(Url::to_string)
+            .unwrap_or_else(|| source.clone()),
+        base_url: base.clone(),
+        cors_mode: cross_origin
+            .as_deref()
+            .map(|value| value.eq_ignore_ascii_case("use-credentials")),
+        referrer_policy: referrer_policy
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| state.document_referrer_policy()),
+    };
+    Ok(Some(NativeImageSelection { key, source, url: resolved }))
+}
+
 fn prepare_dynamic_image_subtree(
     scope: &mut v8::PinScope<'_, '_>,
     state: &Rc<V8BindingState>,
@@ -47643,6 +47773,8 @@ fn prepare_dynamic_image_subtree(
         let dom = state.dom.borrow();
         if !dom.is_connected(root)?
             && !dom.is_element(root, "http://www.w3.org/1999/xhtml", "video")
+            && !dom.is_element(root, "http://www.w3.org/1999/xhtml", "img")
+            && !dom.is_element(root, "http://www.w3.org/1999/xhtml", "picture")
         {
             return Ok(());
         }
@@ -47660,92 +47792,30 @@ fn prepare_dynamic_image_subtree(
         images
             .into_iter()
             .filter(|node| {
-                dom.is_element(*node, "http://www.w3.org/1999/xhtml", "img")
-                    || dom.is_element(*node, "http://www.w3.org/2000/svg", "image")
-                    || dom.is_element(*node, "http://www.w3.org/1999/xhtml", "input")
-                    || dom.is_element(*node, "http://www.w3.org/1999/xhtml", "video")
+                let html_image = dom.is_element(*node, "http://www.w3.org/1999/xhtml", "img");
+                let poster = dom.is_element(*node, "http://www.w3.org/1999/xhtml", "video");
+                html_image || poster || (dom.is_connected(*node).unwrap_or(false)
+                    && (dom.is_element(*node, "http://www.w3.org/2000/svg", "image")
+                        || dom.is_element(*node, "http://www.w3.org/1999/xhtml", "input")))
             })
             .collect::<Vec<_>>()
     };
     for node in images {
-        let (mut source, cross_origin, referrer_policy, mut upgrade_mixed_image) = {
-            let dom = state.dom.borrow();
-            let poster = dom.is_element(node, "http://www.w3.org/1999/xhtml", "video");
-            let svg_image = dom.is_element(node, "http://www.w3.org/2000/svg", "image");
-            let image_enabled = poster || svg_image
-                || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img")
-                || dom
-                    .attribute_in_null_namespace(node, "type")?
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("image"));
-            (
-                (if svg_image {
-                    dom.attribute_in_null_namespace(node, "href")?
-                        .or(dom.attribute_ns(node, Some("http://www.w3.org/1999/xlink"), "href")?)
-                } else {
-                    dom.attribute_in_null_namespace(node, if poster { "poster" } else { "src" })?
-                })
-                    .filter(|_| image_enabled)
-                    .map(str::to_owned),
-                if poster {
-                    None
-                } else {
-                    dom.attribute_in_null_namespace(node, "crossorigin")?
-                        .map(str::to_owned)
-                },
-                dom.attribute_in_null_namespace(node, "referrerpolicy")?
-                    .map(str::to_owned),
-                (poster || svg_image || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img"))
-                    && dom
-                        .attribute_in_null_namespace(node, "srcset")?
-                        .is_none_or(|value| value.trim().is_empty())
-                    && !dom.parent(node)?.is_some_and(|parent| {
-                        dom.is_element(parent, "http://www.w3.org/1999/xhtml", "picture")
-                    }),
-            )
-        };
-        let mut density = 1.;
-        if state
-            .dom
-            .borrow()
-            .is_element(node, "http://www.w3.org/1999/xhtml", "img")
-        {
-            let (selected, selected_density, responsive, source_node) =
-                responsive_images::source(scope, state, node)?;
-            let hints = responsive_images::source_dimensions(state, source_node)?;
-            state.dom.borrow_mut().set_image_source_size(node, hints)?;
-            source = selected;
-            density = selected_density;
-            upgrade_mixed_image &= !responsive;
-        }
-        // Responsive selection runs its own scoped provider admissions; their
-        // Drop deliberately invalidates earlier receipts. Re-admit request
-        // publication from this exact image document's current context.
+        let selection = selected_native_image_request(scope, state, node)?;
+        // Cancelling the previous request may release its last target lease.
+        // Keep selection/clear/publication rooted until this turn finishes.
+        let _selection_target = submissions::RootedTarget::new(state, node)?;
         let _retained_scope = state.enter_retained_allocation(scope)?;
-        let Some(source) = source else {
+        let Some(NativeImageSelection { key, source, url: resolved }) = selection else {
+            image_decode_promises::selected(scope, state, node, None);
             state.cancel_image_requests(Some(node))?;
             state.image_sources.borrow_mut().remove(&node);
             state.image_generations.borrow_mut().remove(&node);
             video_poster::clear_image(state, node)?;
             continue;
         };
-        let base = state.native_document_base_url(true)?;
-        let resolved = state.native_document_resource_url(&source);
-        let key = ImageRequestKey {
-            density_bits: density.to_bits(),
-            upgrade_mixed_image,
-            source: resolved
-                .as_ref()
-                .map(Url::to_string)
-                .unwrap_or_else(|_| source.clone()),
-            base_url: base.clone(),
-            cors_mode: cross_origin
-                .as_deref()
-                .map(|value| value.eq_ignore_ascii_case("use-credentials")),
-            referrer_policy: referrer_policy
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| state.document_referrer_policy()),
-        };
         let previous = state.image_sources.borrow().get(&node).cloned();
+        image_decode_promises::selected(scope, state, node, Some(&key));
         if let Some(mut previous) = previous {
             let old_density = previous.density_bits;
             previous.density_bits = key.density_bits;
@@ -47776,7 +47846,7 @@ fn prepare_dynamic_image_subtree(
         state.cancel_image_requests(Some(node))?;
         let initiator_url = request_initiator_url(scope);
 
-        if source.is_empty() || resolved.is_err() {
+        if source.is_empty() || resolved.is_none() {
             queue_image_preparation_error(state, node, key)?;
             continue;
         }
@@ -47826,6 +47896,7 @@ fn prepare_dynamic_image_subtree(
             .insert(node, generation);
         // Equality suppresses future admissions, so publish this key only
         // after the host accepted the corresponding pending operation.
+        image_decode_promises::admitted(scope, state, node, generation, &key);
         state.image_sources.borrow_mut().insert(node, key);
     }
     Ok(())
@@ -52356,8 +52427,13 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             assert!(document_has_image_candidates(scope, &state).unwrap());
             dom.borrow_mut().retain_native(node).unwrap();
             dom.borrow_mut().remove_child(root, node).unwrap();
-            assert!(!document_has_image_candidates(scope, &state).unwrap());
+            assert_eq!(document_has_image_candidates(scope, &state).unwrap(), tag == "img",
+                "only detached HTML img remains a document image-loader candidate");
             dom.borrow_mut().release_native(node).unwrap();
+            let mutations = dom.borrow_mut().drain_mutations();
+            dom.borrow_mut().release_mutation_roots(&mutations).unwrap();
+            assert!(!document_has_image_candidates(scope, &state).unwrap(),
+                "released prior candidates must not contaminate the next case");
         }
         let canceled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let allocation = std::sync::Arc::new(state.capture_retained_allocation(scope, canceled.clone()).unwrap());
@@ -53239,6 +53315,10 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         let removed = dom.borrow_mut().create(image_kind);
         let document = dom.borrow().document();
         dom.borrow_mut().append_child(document, removed).unwrap();
+        // Model a genuinely admitted source, not a sourceless synthetic request.
+        dom.borrow_mut().set_attribute(removed, "src", "https://example.test/removed.svg").unwrap();
+        let selection = selected_native_image_request(scope, &state, removed).unwrap().unwrap();
+        state.image_sources.borrow_mut().insert(removed, selection.key);
         let generation = HostOperationId(3);
         state
             .image_generations
@@ -56508,6 +56588,53 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
     }
 
     #[test]
+    fn detached_html_images_select_native_requests_without_other_detached_fetches() {
+        #[derive(Default)]
+        struct ImageHost(RefCell<Vec<String>>);
+        impl PlatformHost for ImageHost {
+            fn retire(&self) {}
+            fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
+                if let PlatformHostRequest::ImageStart { request, .. } = request {
+                    self.0.borrow_mut().push(request.url);
+                }
+                Ok(())
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn drain_completions(&self, _: usize) -> Vec<PlatformHostCompletion> { Vec::new() }
+        }
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/owner/page").unwrap();
+        let host = Rc::new(ImageHost::default());
+        state.set_platform_host(host.clone());
+        let source = v8::String::new(scope, r#"
+            const img=new Image();img.src='first.png';img.src='first.png';
+            const picture=document.createElement('picture'),source=document.createElement('source');
+            picture.append(source,img);source.srcset='selected.png 1x';
+            const inactive=document.implementation.createHTMLDocument('inactive');
+            const inert=inactive.createElement('img');inert.src='inert.png';
+            const input=document.createElement('input');input.type='image';input.src='input.png';
+            const svg=document.createElementNS('http://www.w3.org/2000/svg','image');svg.setAttribute('href','svg.png');
+            const frame=document.createElement('iframe');frame.src='frame.html';
+            const script=document.createElement('script');script.src='script.js';
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert_eq!(*host.0.borrow(), vec![
+            "https://example.test/owner/first.png",
+            "https://example.test/owner/selected.png",
+        ]);
+        prepare_document_images_for_lifecycle(scope, &state).unwrap();
+        assert_eq!(host.0.borrow().len(), 2, "unchanged detached requests are reused");
+        assert!(state.prepared_frames.borrow().is_empty());
+        assert!(state.pending_dynamic_frames.borrow().is_empty());
+    }
+
+    #[test]
     fn image_requests_use_native_base_and_deliver_trusted_completion_events() {
         #[derive(Default)]
         struct ImageHost(RefCell<Vec<(String, Option<String>)>>);
@@ -56794,7 +56921,8 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
                 .run(scope)
                 .unwrap();
         }
-        assert!(parent_host.0.borrow().is_empty());
+        assert_eq!(*parent_host.0.borrow(), vec!["https://example.test/parent/picture.png"],
+            "detached source initially belongs to the parent, not the eventual insertion realm");
         assert_eq!(
             *child_host.0.borrow(),
             vec![
